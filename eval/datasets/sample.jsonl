@@ -1,0 +1,5 @@
+{"case_id": "cmd-injection", "repo": "demo/payments", "diff": "diff --git a/run.py b/run.py\n--- a/run.py\n+++ b/run.py\n@@ -1,2 +1,4 @@\n import os\n+def handle(cmd):\n+    os.system(cmd)\n"}
+{"case_id": "hardcoded-secret", "repo": "demo/auth", "diff": "diff --git a/config.py b/config.py\n--- a/config.py\n+++ b/config.py\n@@ -1 +1,2 @@\n-DEBUG = False\n+API_KEY = \"sk-live-abc123secret\"\n+DEBUG = False\n"}
+{"case_id": "bare-except", "repo": "demo/etl", "diff": "diff --git a/load.py b/load.py\n--- a/load.py\n+++ b/load.py\n@@ -1,3 +1,5 @@\n def load(x):\n+    try:\n+        return int(x)\n+    except:\n+        return None\n"}
+{"case_id": "clean-change", "repo": "demo/utils", "diff": "diff --git a/util.py b/util.py\n--- a/util.py\n+++ b/util.py\n@@ -1,2 +1,4 @@\n def add(a, b):\n     return a + b\n+def sub(a, b):\n+    return a - b\n"}
+{"case_id": "added-tests", "repo": "demo/calc", "diff": "diff --git a/test_calc.py b/test_calc.py\n--- a/test_calc.py\n+++ b/test_calc.py\n@@ -0,0 +1,3 @@\n+def test_add():\n+    assert 1 + 1 == 2\n"}

@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codesage"
+version = "0.1.0"
+description = "Agentic Code Review Assistant — Claude-powered multi-agent PR review on LangGraph"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Badri Narayanan" }]
+keywords = ["llm", "code-review", "langgraph", "claude", "agents", "pgvector", "rag", "mcp"]
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "anthropic>=0.40",
+    "langgraph>=0.2.40",
+    "langchain-core>=0.3",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "pgvector>=0.3",
+    "httpx>=0.27",
+    "mcp>=1.1",
+    "numpy>=1.26",
+    "tenacity>=8.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+codesage-api = "app.main:run"
+codesage-mcp = "app.mcp.server:main"
+
+[tool.setuptools.packages.find]
+include = ["app*", "scripts*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]  # FastAPI Depends() in defaults is idiomatic
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]

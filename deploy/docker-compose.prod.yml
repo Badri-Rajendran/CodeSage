@@ -1,0 +1,52 @@
+# Production stack for CodeSage on a single DigitalOcean droplet.
+# The DB is not published to the host; only the reverse proxy is exposed.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-codesage}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-codesage}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations/0001_init.sql:/docker-entrypoint-initdb.d/0001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codesage} -d ${POSTGRES_DB:-codesage}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-codesage}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-codesage}
+    expose:
+      - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Set CODESAGE_DOMAIN in .env to a real domain for automatic HTTPS.
+      # Leave unset to serve plain HTTP on :80 (good for an IP-only droplet).
+      CODESAGE_DOMAIN: ${CODESAGE_DOMAIN:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+    restart: always
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
