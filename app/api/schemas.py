@@ -41,10 +41,36 @@ class ReviewResponse(BaseModel):
     approved: bool | None = None
     traces: list[dict] | None = None
     telemetry: dict | None = None
+    # Persisted metadata (present on list/detail reads; null on a fresh sync result).
+    status: str | None = None
+    model: str | None = None
+    created_at: str | None = None
+
+
+class ReviewJob(BaseModel):
+    """Returned by the async endpoint: the review is now running in the background."""
+
+    id: str
+    repo: str
+    pr_number: int | None
+    status: str = "running"
+    stream_url: str
 
 
 class ApprovalRequest(BaseModel):
     approved: bool = Field(..., description="Approve (true) or reject (false) the review.")
+
+
+class EvalRunRequest(BaseModel):
+    dataset: str = Field("eval/datasets/sample.jsonl", description="Path to a JSONL dataset")
+    model: str | None = Field(None, description="Model to score with (defaults to configured)")
+
+
+class EvalCompareRequest(BaseModel):
+    dataset: str = Field("eval/datasets/sample.jsonl", description="Path to a JSONL dataset")
+    baseline: str = Field(..., description="Baseline model id")
+    candidate: str = Field(..., description="Candidate model id")
+    tolerance: float = Field(0.05, description="Per-case score drop that counts as a regression")
 
 
 class IngestRequest(BaseModel):

@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     host: str = Field(default="0.0.0.0", alias="CODESAGE_HOST")
     port: int = Field(default=8000, alias="CODESAGE_PORT")
     log_level: str = Field(default="INFO", alias="CODESAGE_LOG_LEVEL")
+    # Comma-separated list of allowed CORS origins for the web UI ("*" allows all).
+    cors_origins: str = Field(default="*", alias="CODESAGE_CORS_ORIGINS")
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def has_llm(self) -> bool:

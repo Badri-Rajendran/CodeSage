@@ -1,0 +1,147 @@
+// Mirrors app/api/schemas.py and the SSE event payloads from the backend.
+
+export type Severity = "critical" | "high" | "medium" | "low" | "info";
+
+export interface Finding {
+  title: string;
+  severity: Severity | string;
+  rationale: string;
+  confidence: number;
+  file?: string | null;
+  line?: number | null;
+  suggestion?: string | null;
+  reviewer?: string | null;
+}
+
+export interface TraceStep {
+  kind: "thought" | "action" | "observation";
+  content: string;
+  tool?: string;
+}
+
+export interface Trace {
+  agent: string;
+  steps: TraceStep[];
+}
+
+export interface UsageEvent {
+  component: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_usd: number;
+}
+
+export interface Telemetry {
+  total_cost_usd: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  calls: number;
+  by_component: UsageEvent[];
+}
+
+export interface Review {
+  id: string;
+  repo: string;
+  pr_number: number | null;
+  status?: string;
+  model?: string;
+  findings: Finding[];
+  summary?: string | null;
+  judge_score?: number | null;
+  judge_rationale?: string | null;
+  judge_dimensions?: Record<string, number> | null;
+  requires_human_approval: boolean;
+  approved?: boolean | null;
+  traces?: Trace[] | null;
+  telemetry?: Telemetry | null;
+  created_at?: string | null;
+}
+
+export interface ReviewJob {
+  id: string;
+  repo: string;
+  pr_number: number | null;
+  status: string;
+  stream_url: string;
+}
+
+export interface TelemetrySummary {
+  total_cost_usd: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_calls: number;
+  total_reviews: number;
+  by_component: {
+    component: string;
+    cost_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+    calls: number;
+  }[];
+}
+
+export interface EvalResult {
+  name: string;
+  kind: "run" | "compare" | "comparand";
+  modified: string;
+  data: any;
+}
+
+// ── SSE event shapes ──────────────────────────────────────────────────────────
+export type StageName =
+  | "security"
+  | "correctness"
+  | "style"
+  | "reflection"
+  | "judge"
+  | "human_gate";
+
+export interface ReviewStartedEvent {
+  type: "review.started";
+  review_id: string;
+  repo: string;
+  pr_number: number | null;
+  model: string;
+  stages: StageName[];
+}
+
+export interface StageCompletedEvent {
+  type: "stage.completed";
+  review_id: string;
+  stage: StageName;
+  findings_count?: number;
+  trace?: Trace | null;
+  summary?: string;
+  judge_score?: number;
+  judge_dimensions?: Record<string, number>;
+  judge_rationale?: string;
+  requires_human_approval?: boolean;
+}
+
+export interface TelemetryUpdateEvent {
+  type: "telemetry.update";
+  review_id: string;
+  telemetry: Telemetry;
+}
+
+export interface ReviewCompletedEvent {
+  type: "review.completed";
+  review_id: string;
+  review: Review;
+}
+
+export interface ReviewFailedEvent {
+  type: "review.failed";
+  review_id: string;
+  error: string;
+}
+
+export type ReviewEvent =
+  | ReviewStartedEvent
+  | StageCompletedEvent
+  | TelemetryUpdateEvent
+  | ReviewCompletedEvent
+  | ReviewFailedEvent;
