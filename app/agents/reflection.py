@@ -37,13 +37,12 @@ _OVERRIDES = ("severity", "title", "rationale", "suggestion", "line", "end_line"
 def apply_decisions(drafts: list[dict], decisions: list[Decision], diff: Diff) -> list[dict]:
     """Apply reflection decisions to findings; unmentioned findings are kept."""
     by_id = {f["id"]: dict(f) for f in drafts}
-    removed: set[str] = set()
+    # Drops are resolved first, so "merge A into B" followed by "drop B" keeps A
+    # (the merge is unusable) instead of losing both.
+    removed: set[str] = {d.finding_id for d in decisions if d.action == "drop"}
     for d in decisions:
         f = by_id.get(d.finding_id)
         if f is None or d.finding_id in removed:
-            continue
-        if d.action == "drop":
-            removed.add(d.finding_id)
             continue
         target = by_id.get(d.merge_into or "")
         if d.action == "merge" and target is not None and d.merge_into not in removed \

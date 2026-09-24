@@ -44,7 +44,9 @@ const STAGE_DEPS: Record<string, string[]> = {
   reflection: ["security", "correctness", "style"],
   judge: ["reflection"],
   revise: ["judge"],
-  human_gate: ["judge"],
+  // Waits for `revise` to be resolved: until then the next step is unknown
+  // (the stream only reports completions), so neither shows as running.
+  human_gate: ["judge", "revise"],
   publish: ["human_gate"],
 };
 
@@ -86,7 +88,11 @@ function recomputeRunning(stages: Record<string, StageState>): Record<string, St
       next[id] = { ...(next[id] ?? {}), status: passed ? "skipped" : "pending" };
       continue;
     }
-    const depsDone = deps.every((d) => next[d]?.status === "completed");
+    const depsDone = deps.every((d) =>
+      d in OPTIONAL_STAGES
+        ? ["completed", "skipped"].includes(next[d]?.status ?? "")
+        : next[d]?.status === "completed",
+    );
     next[id] = {
       ...(next[id] ?? { status: "pending" }),
       status: depsDone ? "running" : "pending",
