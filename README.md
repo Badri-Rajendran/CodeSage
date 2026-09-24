@@ -221,7 +221,7 @@ You'll get back findings grouped by reviewer, a judge score, and a
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[server,dev]"
 export CODESAGE_AUTH_DISABLED=true    # local only; or set CODESAGE_API_KEYS
 # bring up just Postgres+pgvector:
 docker compose up -d db

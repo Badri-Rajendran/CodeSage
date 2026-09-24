@@ -7,7 +7,7 @@ Thanks for your interest! This project follows standard Python practices.
 ```bash
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
+pip install -e ".[server,dev]"
 cp .env.example .env               # add ANTHROPIC_API_KEY (optional — stub mode works without)
 ```
 

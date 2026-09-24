@@ -9,7 +9,7 @@ CodeSage is a Claude-powered multi-agent PR review assistant: a FastAPI backend 
 Backend (use the local venv at `.venv`). Running the API needs `CODESAGE_API_KEYS=<key>` (or `CODESAGE_AUTH_DISABLED=true` for local-only dev), else every `/api/v1` route returns 503:
 
 ```bash
-pip install -e ".[dev]"                     # or: make dev
+pip install -e ".[server,dev]"              # or: make dev (engine-only: pip install .)
 .venv/bin/pytest -q                         # full suite (make test)
 .venv/bin/pytest tests/test_review_graph.py::test_name -q   # single test
 ruff check app tests scripts                # lint (make lint) — CI fails on this
