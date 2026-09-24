@@ -84,6 +84,43 @@ codebase for RAG, or evaluate models for regressions.
 
 Every node records token usage and cost via the telemetry layer.
 
+## Use it as a GitHub Action
+
+CodeSage reviews pull requests in your own repositories as a composite GitHub Action.
+Three Claude agents (security, correctness, style) read and search the checked-out code,
+and can run your tests. A reflection agent consolidates their findings, and a judge on a
+different model scores the result. CodeSage posts one PR review with inline comments and
+a `CodeSage` check run. The check fails when there's a critical or high finding, or when
+the judge score is low; branch protection can require it.
+
+1. Add an `ANTHROPIC_API_KEY` repository secret.
+2. Copy [`examples/codesage-workflow.yml`](examples/codesage-workflow.yml) to
+   `.github/workflows/codesage.yml`.
+3. Optionally, add a [`.codesage.yml`](examples/codesage.yml) with models, budget, gate,
+   ignored paths and a test command.
+
+When it runs:
+
+| Trigger | Reviews |
+|---|---|
+| PR opened (not a draft) or marked ready for review | automatically |
+| `codesage:review` label added | again, and the label is removed afterwards |
+| `/codesage review` comment by an owner, member or collaborator | again |
+
+- **Forks:** PRs from forks are skipped.
+- **Comment triggers:** these only work once the workflow file is on the default branch,
+  because GitHub runs `issue_comment` workflows from there.
+- **Cost:** each review is capped at `budget_usd`, $0.50 by default. The cost per agent is
+  in the review body and the job summary.
+
+To reproduce a run locally without posting anything:
+
+```bash
+pip install .                       # engine only
+codesage-action review --event event.json --event-name pull_request \
+  --repository owner/name --workspace /path/to/checkout --dry-run --local-diff
+```
+
 ## Quick start (local, Docker)
 
 ```bash

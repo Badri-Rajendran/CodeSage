@@ -1,0 +1,71 @@
+name: CodeSage review
+description: Agentic pull-request review with Claude (security, correctness and style agents, a judge, and a check run)
+author: Badri-Rajendran
+branding:
+  icon: eye
+  color: purple
+
+inputs:
+  anthropic-api-key:
+    description: Anthropic API key (store it as a repository secret)
+    required: true
+  github-token:
+    description: Token used to read the PR and post the review and check run
+    required: false
+    default: ${{ github.token }}
+  config-path:
+    description: Path of the review config in the repository
+    required: false
+    default: .codesage.yml
+
+outputs:
+  score:
+    description: Judge score (0-1); empty if the review wasn't judged
+    value: ${{ steps.review.outputs.score }}
+  gate:
+    description: pass, tripped, or error; empty when the event was skipped
+    value: ${{ steps.review.outputs.gate }}
+  cost-usd:
+    description: Model spend for this review, in USD
+    value: ${{ steps.review.outputs.cost_usd }}
+  review-url:
+    description: URL of the posted PR review
+    value: ${{ steps.review.outputs.review_url }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+
+    - name: Install CodeSage
+      shell: bash
+      run: |
+        python -m venv "$RUNNER_TEMP/codesage"
+        "$RUNNER_TEMP/codesage/bin/pip" install --quiet --disable-pip-version-check "${{ github.action_path }}"
+
+    - id: resolve
+      name: Decide whether to review
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: '"$RUNNER_TEMP/codesage/bin/codesage-action" resolve'
+
+    - if: steps.resolve.outputs.run == 'true'
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ steps.resolve.outputs.head_sha }}
+        fetch-depth: 0
+        # Keep the token out of .git/config: the repo's own tests may run here.
+        persist-credentials: false
+
+    - id: review
+      if: steps.resolve.outputs.run == 'true'
+      name: Review the pull request
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        CODESAGE_CONFIG: ${{ inputs.config-path }}
+      run: '"$RUNNER_TEMP/codesage/bin/codesage-action" review'

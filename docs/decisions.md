@@ -68,7 +68,7 @@ Checked on 2026-09-23. "Installed source" means the project's `.venv` at that da
 - the behaviour when a review comment's line is outside the diff (whether the whole review fails)
 - the maximum number of comments per review
 - the permission needed to remove a label from a PR
-- `actions/setup-python`'s current major version
+- ~~`actions/setup-python`'s current major version~~: v7.0.0 (2026-07-20), checked on 2026-09-24 via the GitHub releases API; `actions/checkout` is v7.0.1
 
 ### LangGraph and LangChain
 

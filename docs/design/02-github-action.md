@@ -46,17 +46,17 @@ outputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@vN            # current major: confirm and pin in Phase 5
+    - uses: actions/setup-python@v7            # current major (verified 2026-09-24)
       with: { python-version: "3.12" }
     - shell: bash
       run: python -m venv "$RUNNER_TEMP/codesage" && "$RUNNER_TEMP/codesage/bin/pip" install -q "${{ github.action_path }}"
     - id: resolve                               # decide whether to run; find head SHA
       shell: bash
       env: { GITHUB_TOKEN: "${{ inputs.github-token }}" }
-      run: "$RUNNER_TEMP/codesage/bin/python" -m app.action resolve
+      run: '"$RUNNER_TEMP/codesage/bin/codesage-action" resolve'
     - if: steps.resolve.outputs.run == 'true'
       uses: actions/checkout@v7                 # current major (verified); pin in Phase 5
-      with: { ref: "${{ steps.resolve.outputs.head_sha }}", fetch-depth: 0 }
+      with: { ref: "${{ steps.resolve.outputs.head_sha }}", fetch-depth: 0, persist-credentials: false }
     - id: review
       if: steps.resolve.outputs.run == 'true'
       shell: bash
@@ -64,14 +64,23 @@ runs:
         ANTHROPIC_API_KEY: "${{ inputs.anthropic-api-key }}"
         GITHUB_TOKEN: "${{ inputs.github-token }}"
         CODESAGE_CONFIG: "${{ inputs.config-path }}"
-      run: "$RUNNER_TEMP/codesage/bin/python" -m app.action review
+      run: '"$RUNNER_TEMP/codesage/bin/codesage-action" review'
 ```
 
 Composite steps may use `uses:` (such as setup-python and checkout) and must set `shell:`
 on `run:` steps. `github.action_path` points at the action's own files **(verified)**.
 Inputs are read from the `inputs` context rather than `INPUT_*` environment variables
-**(verified)**. `actions/checkout`'s current major is v7 **(verified)**;
-`actions/setup-python`'s current major is **to verify, Phase 5**. Both are pinned then.
+**(verified)**. The current majors of `actions/checkout` and `actions/setup-python` are both
+v7 **(verified 2026-09-24)**.
+
+- **Console script, not `python -m`.** The steps call the `codesage-action` console script.
+  `python -m app.action` would put the working directory (the reviewed repo) first on
+  `sys.path`, so a repo with its own `app/` package would have its code imported. This was
+  found during the Phase 5 dry run.
+- **No persisted credentials.** The checkout uses `persist-credentials: false`, so the token
+  isn't written to `.git/config`, where `run_tests` code could read it.
+- **No `.env` file.** Settings are built without reading a `.env` file, because the working
+  directory is the reviewed repo.
 
 ### Example consumer workflow (`.github/workflows/codesage.yml`)
 
@@ -238,6 +247,6 @@ triggers a new review. The permission this needs (`issues: write` or
 
 ## Local reproduction
 
-`python -m app.action review --event path/to/event.json --workspace /path/to/repo`
+`codesage-action review --event path/to/event.json --event-name pull_request --repository owner/name --workspace /path/to/repo --dry-run --local-diff`
 runs the same code outside Actions, using a saved event payload. It's used for
 Phase 5 verification and for debugging without pushing.
