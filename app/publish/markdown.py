@@ -7,6 +7,7 @@ from collections import Counter, defaultdict
 from importlib.metadata import PackageNotFoundError, version
 
 CHECK_TEXT_LIMIT = 65_535  # check-run output.summary / output.text
+REVIEW_BODY_LIMIT = 65_000  # PR review body (GitHub caps bodies at 65,536 chars)
 STEP_SUMMARY_LIMIT = 1024 * 1024  # $GITHUB_STEP_SUMMARY per step
 BUDGET_REASON = "budget-limited: not judged"
 
@@ -103,7 +104,10 @@ def review_body(
     inline_ids: set[str] | None = None,
     skipped_files: list[str] | None = None,
     review_id: str | None = None,
+    limit: int | None = None,
 ) -> str:
+    """The review body. With ``limit``, it is truncated to fit, keeping the
+    idempotency marker at the end so re-posting is still detected."""
     findings = state.get("findings", [])
     inline_ids = inline_ids or set()
     conclusion, title = gate_outcome(state)
@@ -140,9 +144,11 @@ def review_body(
                     + (" and the review wasn't judged." if score is None else ".")]
     out += ["", "<details><summary>Cost</summary>", "", _cost_table(telemetry), "", "</details>"]
     out += ["", f"<sub>CodeSage {codesage_version()} · agentic PR review with Claude</sub>"]
-    if review_id:
-        out.append(review_marker(review_id))
-    return "\n".join(out)
+    marker = f"\n{review_marker(review_id)}" if review_id else ""
+    text = "\n".join(out)
+    if limit is not None:
+        text = truncate(text, limit - len(marker))
+    return text + marker
 
 
 def traces_markdown(state: dict) -> str:

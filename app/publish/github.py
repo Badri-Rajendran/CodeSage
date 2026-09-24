@@ -11,6 +11,7 @@ from app.github.client import GitHubClient
 from app.logging_config import get_logger
 from app.publish.markdown import (
     CHECK_TEXT_LIMIT,
+    REVIEW_BODY_LIMIT,
     comment_body,
     gate_outcome,
     review_body,
@@ -63,7 +64,8 @@ class GitHubPublisher:
         inline = anchored[:MAX_INLINE_COMMENTS]
         inline_ids = {f["id"] for f in inline}
         body = review_body(state, telemetry, inline_ids=inline_ids,
-                           skipped_files=skipped_files, review_id=review_id)
+                           skipped_files=skipped_files, review_id=review_id,
+                           limit=REVIEW_BODY_LIMIT)
         try:
             resp = await self.client.create_review(
                 self.repo, self.pr_number, commit_id=self.head_sha, body=body,
@@ -77,7 +79,7 @@ class GitHubPublisher:
             logger.warning("Inline review rejected (422: %s); posting body-only.",
                            exc.response.text[:300])
             body = review_body(state, telemetry, skipped_files=skipped_files,
-                               review_id=review_id)
+                               review_id=review_id, limit=REVIEW_BODY_LIMIT)
             resp = await self.client.create_review(
                 self.repo, self.pr_number, commit_id=self.head_sha, body=body
             )

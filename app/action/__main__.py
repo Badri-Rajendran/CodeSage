@@ -162,11 +162,12 @@ async def cmd_review(args: argparse.Namespace, settings: Settings) -> int:
     ctx = _pr_context(pr)
     workspace_root = Path(args.workspace or os.environ.get("GITHUB_WORKSPACE") or ".").resolve()
     publisher = GitHubPublisher(gh, repository, ctx["number"], ctx["head_sha"])
-    check_id = await publisher.start_check()
     tracker = CostTracker()
     state: dict[str, Any] = {}
     skipped: list[str] = []
+    check_id: int | None = None
     try:
+        check_id = await publisher.start_check()
         cfg_path = workspace_root / (args.config or os.environ.get("CODESAGE_CONFIG")
                                      or ".codesage.yml")
         cfg = load_review_config(cfg_path, settings)
@@ -191,7 +192,11 @@ async def cmd_review(args: argparse.Namespace, settings: Settings) -> int:
     except Exception as exc:  # the check run must never be left "in progress"
         message = str(exc) if isinstance(exc, ReviewConfigError) else f"{type(exc).__name__}: {exc}"
         logger.exception("CodeSage review failed")
-        await publisher.finish_check(check_id, state, tracker.summary(), error=message)
+        if check_id is not None:
+            try:
+                await publisher.finish_check(check_id, state, tracker.summary(), error=message)
+            except Exception:  # still report the original failure below
+                logger.exception("Could not complete the CodeSage check run")
         step_summary(f"## CodeSage error\n\n{message}")
         set_outputs(gate="error", cost_usd=f"{tracker.total_cost:.4f}")
         return 1
