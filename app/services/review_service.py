@@ -178,7 +178,13 @@ class ReviewService:
         async for update_ in graph.astream(graph_input, config, stream_mode="updates"):
             for node, delta in update_.items():
                 if node == "__interrupt__":
+                    # The gate paused before returning its update; its reasons
+                    # travel in the interrupt payload.
                     paused = True
+                    for pending in delta or ():
+                        value = getattr(pending, "value", None) or {}
+                        state["gate_tripped"] = True
+                        state["gate_reasons"] = value.get("reasons", [])
                     continue
                 self._merge_delta(state, delta)
                 if emit is not None:
