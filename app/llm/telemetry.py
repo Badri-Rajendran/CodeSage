@@ -1,8 +1,8 @@
 """Token-cost telemetry.
 
 Every Claude call is metered here. Prices are per 1M tokens (USD), sourced from
-the Claude pricing table. Cache reads bill at ~0.1x input; 5-minute cache writes
-at ~1.25x input.
+the Claude pricing table. Cache reads bill at 0.1x input; 5-minute cache writes
+at 1.25x input; 1-hour cache writes at 2x input.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ _DEFAULT_PRICE = (5.0, 25.0)
 
 _CACHE_READ_MULT = 0.1
 _CACHE_WRITE_MULT = 1.25
+_CACHE_WRITE_1H_MULT = 2.0
 
 
 def price_for(model: str) -> tuple[float, float]:
@@ -42,14 +43,20 @@ def cost_usd(
     output_tokens: int,
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
+    cache_write_1h_tokens: int = 0,
 ) -> float:
-    """Compute the USD cost of a single call."""
+    """Compute the USD cost of a single call.
+
+    ``input_tokens`` excludes cached tokens (Anthropic's convention).
+    ``cache_write_tokens`` are 5-minute writes; ``cache_write_1h_tokens`` 1-hour writes.
+    """
     in_price, out_price = price_for(model)
     return (
         input_tokens * in_price
         + output_tokens * out_price
         + cache_read_tokens * in_price * _CACHE_READ_MULT
         + cache_write_tokens * in_price * _CACHE_WRITE_MULT
+        + cache_write_1h_tokens * in_price * _CACHE_WRITE_1H_MULT
     ) / 1_000_000
 
 
@@ -90,6 +97,7 @@ class CostTracker:
         output_tokens: int = 0,
         cache_read_tokens: int = 0,
         cache_write_tokens: int = 0,
+        cache_write_1h_tokens: int = 0,
     ) -> UsageEvent:
         ev = UsageEvent(
             component=component,
@@ -97,13 +105,14 @@ class CostTracker:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cache_read_tokens=cache_read_tokens,
-            cache_write_tokens=cache_write_tokens,
+            cache_write_tokens=cache_write_tokens + cache_write_1h_tokens,
             cost=cost_usd(
                 model,
                 input_tokens,
                 output_tokens,
                 cache_read_tokens,
                 cache_write_tokens,
+                cache_write_1h_tokens,
             ),
         )
         self.events.append(ev)
