@@ -2,8 +2,9 @@
 
 Build order for the approved design in [architecture.md](architecture.md). Each phase
 ends with the verification listed for it, and nothing moves to the next phase while
-the current one fails. A detailed, task-level implementation plan will be written
-from these docs once they're approved (`docs/plans/`).
+the current one fails. The task-level implementation plan, including the owner's
+execution rules (ask before each paid API run and each outward-facing GitHub step),
+is [plans/2026-09-24-agentic-workflows.md](plans/2026-09-24-agentic-workflows.md).
 
 **Branch:** `feat/agentic-workflows`.
 
