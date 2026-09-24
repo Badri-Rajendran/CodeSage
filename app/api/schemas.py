@@ -18,14 +18,19 @@ class ReviewRequest(BaseModel):
 
 
 class Finding(BaseModel):
+    id: str | None = None
+    reviewer: str | None = None
+    category: str | None = None
     title: str
     severity: str
     rationale: str
     confidence: float
-    file: str | None = None
+    path: str | None = None
     line: int | None = None
+    end_line: int | None = None
     suggestion: str | None = None
-    reviewer: str | None = None
+    evidence: list[str] = Field(default_factory=list)
+    merged_from: list[str] = Field(default_factory=list)
 
 
 class ReviewResponse(BaseModel):

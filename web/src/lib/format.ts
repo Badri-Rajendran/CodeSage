@@ -17,7 +17,9 @@ export const STAGES: {
     deps: ["security", "correctness", "style"],
   },
   { id: "judge", label: "LLM Judge", blurb: "Score the review", deps: ["reflection"] },
+  { id: "revise", label: "Revise", blurb: "One more pass if scored low", deps: ["judge"] },
   { id: "human_gate", label: "Human Gate", blurb: "HITL decision", deps: ["judge"] },
+  { id: "publish", label: "Publish", blurb: "Post to the PR", deps: ["human_gate"] },
 ];
 
 export const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low", "info"];

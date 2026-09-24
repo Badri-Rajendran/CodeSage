@@ -18,7 +18,7 @@ Role = Literal["reviewer", "reflection", "judge"]
 
 # Output cap per call. It bounds how far a single in-flight call can overshoot
 # the budget, and it includes adaptive-thinking tokens.
-MAX_TOKENS: dict[Role, int] = {"reviewer": 4000, "reflection": 4000, "judge": 3000}
+MAX_TOKENS: dict[Role, int] = {"reviewer": 4000, "reflection": 4000, "judge": 4000}
 
 
 def model_name(role: Role, cfg: ReviewConfig) -> str:

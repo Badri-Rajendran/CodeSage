@@ -15,14 +15,16 @@ import json
 
 from mcp.server.fastmcp import FastMCP
 
-from app.agents.graph import build_review_graph, make_deps
-from app.agents.tools import ReviewTools
+from app.agents.graph import build_review_graph, make_deps, prepare_diff
 from app.config import get_settings
 from app.db.session import SessionFactory
 from app.github.client import GitHubClient
 from app.llm.client import LLMClient
 from app.llm.telemetry import CostTracker
 from app.logging_config import configure_logging
+from app.rag.search import pgvector_search
+from app.review_config import default_review_config
+from app.workspace import Workspace
 
 mcp = FastMCP("codesage")
 
@@ -32,10 +34,13 @@ async def _run_review(repo: str, diff: str, pr_number: int | None) -> dict:
     tracker = CostTracker()
     client = LLMClient(settings, tracker)
 
-    # RAG retrieval opens its own sessions and degrades gracefully if the DB is
-    # unreachable (returns empty context rather than failing the review).
-    tools = ReviewTools(repo, diff, settings=settings, session_factory=SessionFactory)
-    graph = build_review_graph(make_deps(client, tools, settings))
+    cfg = default_review_config(settings)
+    # Semantic search opens its own sessions and degrades gracefully if the DB is
+    # unreachable (returns no results rather than failing the review).
+    workspace = Workspace.diff_only(
+        prepare_diff(diff, cfg), semantic=pgvector_search(SessionFactory, repo)
+    )
+    graph = build_review_graph(make_deps(client, workspace, settings, cfg=cfg))
     state = await graph.ainvoke({"repo": repo, "pr_number": pr_number, "diff": diff})
 
     return {
@@ -45,6 +50,7 @@ async def _run_review(repo: str, diff: str, pr_number: int | None) -> dict:
         "summary": state.get("summary", ""),
         "judge_score": state.get("judge_score"),
         "requires_human_approval": state.get("requires_human_approval", False),
+        "gate_reasons": state.get("gate_reasons", []),
         "telemetry": tracker.summary(),
     }
 

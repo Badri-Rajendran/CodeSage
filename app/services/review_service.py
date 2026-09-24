@@ -21,20 +21,24 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.graph import build_review_graph, make_deps
-from app.agents.tools import ReviewTools
+from app.agents.graph import STAGES, build_review_graph, make_deps, prepare_diff
+from app.agents.state import ADDITIVE_KEYS, OR_KEYS
 from app.config import get_settings
 from app.db.models import Review, UsageEventRow
 from app.db.session import SessionFactory
 from app.llm.client import LLMClient
 from app.llm.telemetry import CostTracker
 from app.logging_config import get_logger
+from app.rag.search import pgvector_search
+from app.review_config import default_review_config
+from app.workspace import Workspace
 
 logger = get_logger(__name__)
 
-# Graph node execution order. The first three run in parallel; the UI uses this
-# (plus the per-stage dependency map below) to derive running/pending states.
-STAGE_ORDER = ["security", "correctness", "style", "reflection", "judge", "human_gate"]
+# Graph node order. The first three run in parallel; `revise` runs only when the
+# judge asks for it. The UI uses this plus its own stage dependency map
+# (web/src/lib/useReviewStream.ts) to derive running/pending/skipped states.
+STAGE_ORDER = list(STAGES)
 
 Publisher = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -57,12 +61,13 @@ class ReviewService:
         """Run the review graph, optionally streaming per-stage progress events."""
         tracker = CostTracker()
         client = LLMClient(self.settings, tracker)
-        # RAG retrieval uses its own short-lived sessions (the reviewers run in
+        cfg = default_review_config(self.settings)
+        # Semantic search opens its own short-lived sessions (the reviewers run in
         # parallel); the request session is reserved for the sequential writes.
-        tools = ReviewTools(
-            repo, diff, settings=self.settings, session_factory=SessionFactory
+        workspace = Workspace.diff_only(
+            prepare_diff(diff, cfg), semantic=pgvector_search(SessionFactory, repo)
         )
-        graph = build_review_graph(make_deps(client, tools, self.settings))
+        graph = build_review_graph(make_deps(client, workspace, self.settings, cfg=cfg))
 
         rid = str(review_id)
         inputs = {"repo": repo, "pr_number": pr_number, "diff": diff}
@@ -96,12 +101,14 @@ class ReviewService:
 
     @staticmethod
     def _merge_delta(state: dict[str, Any], delta: dict[str, Any] | None) -> None:
-        """Apply a node's state delta, honouring the two additive reducer keys."""
+        """Apply a node's state delta, mirroring the reducers in app/agents/state.py."""
         if not delta:
             return
         for key, value in delta.items():
-            if key in ("draft_findings", "traces"):
+            if key in ADDITIVE_KEYS:
                 state.setdefault(key, []).extend(value or [])
+            elif key in OR_KEYS:
+                state[key] = bool(state.get(key)) or bool(value)
             else:
                 state[key] = value
 
@@ -116,15 +123,19 @@ class ReviewService:
             traces = delta.get("traces") or []
             payload["findings_count"] = len(delta.get("draft_findings") or [])
             payload["trace"] = traces[0] if traces else None
-        elif node == "reflection":
+        elif node in ("reflection", "revise"):
             payload["findings_count"] = len(state.get("findings", []))
             payload["summary"] = state.get("summary", "")
+            payload["trace"] = state.get("reflection_trace")
         elif node == "judge":
             payload["judge_score"] = state.get("judge_score")
             payload["judge_dimensions"] = state.get("judge_dimensions", {})
             payload["judge_rationale"] = state.get("judge_rationale", "")
         elif node == "human_gate":
             payload["requires_human_approval"] = state.get("requires_human_approval", False)
+            payload["gate_reasons"] = state.get("gate_reasons", [])
+        elif node == "publish":
+            payload["github_review_url"] = state.get("github_review_url")
         return payload
 
     def _result_dict(
@@ -155,6 +166,10 @@ class ReviewService:
             "approved": approved,
             "traces": state.get("traces", []),
             "telemetry": tracker.summary(),
+            "gate_reasons": state.get("gate_reasons", []),
+            "budget_limited": bool(state.get("budget_limited")),
+            "revision_count": state.get("revision_count", 0),
+            "github_review_url": state.get("github_review_url"),
         }
 
     def _record_usage(self, review_id: uuid.UUID, tracker: CostTracker) -> None:

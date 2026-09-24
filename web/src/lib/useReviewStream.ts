@@ -9,7 +9,7 @@ import type {
   Trace,
 } from "./types";
 
-export type StageStatus = "pending" | "running" | "completed";
+export type StageStatus = "pending" | "running" | "completed" | "skipped";
 
 export interface StageState {
   status: StageStatus;
@@ -36,14 +36,22 @@ export interface LiveReview {
   log: { ts: number; label: string; tone: "info" | "ok" | "warn" | "err" }[];
 }
 
+// Mirrors STAGES in app/agents/graph.py (and STAGES in ./format.ts).
 const STAGE_DEPS: Record<string, string[]> = {
   security: [],
   correctness: [],
   style: [],
   reflection: ["security", "correctness", "style"],
   judge: ["reflection"],
+  revise: ["judge"],
   human_gate: ["judge"],
+  publish: ["human_gate"],
 };
+
+// Conditional stages: never shown as running ahead of time (the stream only
+// reports completions). Once the stage that follows them completes without
+// them having run, they were skipped.
+const OPTIONAL_STAGES: Record<string, string> = { revise: "human_gate" };
 
 const STAGE_LABEL: Record<string, string> = {
   security: "Security reviewer",
@@ -51,7 +59,9 @@ const STAGE_LABEL: Record<string, string> = {
   style: "Style reviewer",
   reflection: "Reflection",
   judge: "LLM-as-Judge",
+  revise: "Revision round",
   human_gate: "Human gate",
+  publish: "Publish",
 };
 
 function initialState(): LiveReview {
@@ -70,6 +80,12 @@ function recomputeRunning(stages: Record<string, StageState>): Record<string, St
   for (const [id, deps] of Object.entries(STAGE_DEPS)) {
     const cur = next[id]?.status;
     if (cur === "completed") continue;
+    const after = OPTIONAL_STAGES[id];
+    if (after) {
+      const passed = next[after]?.status === "completed";
+      next[id] = { ...(next[id] ?? {}), status: passed ? "skipped" : "pending" };
+      continue;
+    }
     const depsDone = deps.every((d) => next[d]?.status === "completed");
     next[id] = {
       ...(next[id] ?? { status: "pending" }),
@@ -234,24 +250,23 @@ function reduce(prev: LiveReview, ev: ReviewEvent): LiveReview {
         findingsCount: ev.findings_count,
         trace: ev.trace ?? stages[ev.stage]?.trace,
       };
-      const draftFindings =
-        ev.trace && typeof ev.findings_count === "number"
-          ? prev.draftFindings
-          : prev.draftFindings;
       const label =
         ev.stage === "judge"
           ? `${STAGE_LABEL[ev.stage]} scored ${ev.judge_score?.toFixed(2) ?? "—"}`
-          : ev.stage === "reflection"
+          : ev.stage === "reflection" || ev.stage === "revise"
             ? `${STAGE_LABEL[ev.stage]} → ${ev.findings_count ?? 0} findings`
             : ev.stage === "human_gate"
               ? ev.requires_human_approval
-                ? "Human approval required"
-                : "Auto-approved by gate"
-              : `${STAGE_LABEL[ev.stage]} done · ${ev.findings_count ?? 0} draft finding(s)`;
+                ? `Needs attention: ${(ev.gate_reasons ?? []).join("; ") || "gate tripped"}`
+                : "Passed the gate"
+              : ev.stage === "publish"
+                ? ev.github_review_url
+                  ? "Posted to the pull request"
+                  : "Nothing to publish"
+                : `${STAGE_LABEL[ev.stage]} done · ${ev.findings_count ?? 0} draft finding(s)`;
       return {
         ...prev,
         stages: recomputeRunning(stages),
-        draftFindings,
         summary: ev.summary ?? prev.summary,
         judgeScore: ev.judge_score ?? prev.judgeScore,
         judgeDimensions: ev.judge_dimensions ?? prev.judgeDimensions,

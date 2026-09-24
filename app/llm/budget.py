@@ -13,6 +13,7 @@ real total is always reported.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -36,7 +37,7 @@ class CallUsage:
     cache_write_1h_tokens: int
 
 
-def usage_from_metadata(usage: dict[str, Any] | None) -> CallUsage:
+def usage_from_metadata(usage: Mapping[str, Any] | None) -> CallUsage:
     """Split LangChain ``usage_metadata`` into Anthropic-style billing buckets.
 
     LangChain's ``input_tokens`` *includes* cached tokens. Cache writes are
@@ -45,7 +46,7 @@ def usage_from_metadata(usage: dict[str, Any] | None) -> CallUsage:
     ``cache_creation`` then set to 0).
     """
     usage = usage or {}
-    details = usage.get("input_token_details") or {}
+    details: Mapping[str, Any] = usage.get("input_token_details") or {}
     read = details.get("cache_read") or 0
     w5 = details.get("ephemeral_5m_input_tokens") or 0
     w1h = details.get("ephemeral_1h_input_tokens") or 0
@@ -83,7 +84,9 @@ class BudgetGuard:
     def can_start(self, stage: str) -> bool:
         return self.remaining >= self.total_usd * MIN_START_SHARE.get(stage, 0.0)
 
-    def record(self, agent: str, model: str, usage_metadata: dict[str, Any] | None) -> float:
+    def record(
+        self, agent: str, model: str, usage_metadata: Mapping[str, Any] | None
+    ) -> float:
         u = usage_from_metadata(usage_metadata)
         ev = self.tracker.record(
             agent,

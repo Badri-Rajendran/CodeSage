@@ -31,7 +31,7 @@ Full stack: `docker compose up --build` → web :3000 (nginx, proxies `/api` to 
 
 With no `ANTHROPIC_API_KEY`, `LLMClient` (`app/llm/client.py`) routes every call to `app/llm/stub.py`, which returns deterministic, regex-heuristic structured output keyed by component name (`security`, `correctness`, `style`, `reflection`, `judge`). `tests/conftest.py` forces stub mode and a dummy DB DSN before any app import, so **the suite must pass offline with no API key and no database**. Consequences:
 - Any new LLM-calling component needs a matching branch in `stub.generate()`.
-- Tests only exercise the stub path; the real Claude path (structured JSON-schema output + adaptive thinking + `effort`, with tenacity retries) is not covered by tests.
+- Tests only exercise the stub path; the live path (LangChain `create_agent` + `ChatAnthropic`, see `app/llm/models.py`) is not covered by tests.
 - Without Voyage (`VOYAGE_API_KEY`), embeddings fall back to a hash embedding (`app/rag/embeddings.py`).
 - `Settings` is `lru_cache`d (`app/config.py`); env must be set before first `get_settings()` call.
 

@@ -47,6 +47,9 @@ DEFAULT_IGNORES: tuple[str, ...] = (
 )
 
 
+_DEFAULT_FAIL_ON: tuple[Severity, ...] = ("critical", "high")
+
+
 class ReviewConfigError(ValueError):
     """``.codesage.yml`` is invalid; the message names the offending key."""
 
@@ -67,7 +70,7 @@ class _Effort(_Strict):
 
 class _Gate(_Strict):
     threshold: float | None = Field(default=None, ge=0.0, le=1.0)
-    fail_on: list[Severity] = Field(default_factory=lambda: ["critical", "high"])
+    fail_on: list[Severity] = Field(default_factory=lambda: list(_DEFAULT_FAIL_ON))
 
 
 class _Tests(_Strict):

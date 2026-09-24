@@ -37,11 +37,12 @@ export function FindingCard({ finding }: { finding: Finding }) {
             </span>
           </div>
           <p className="mt-1.5 text-sm font-medium text-ink">{finding.title}</p>
-          {finding.file && (
+          {finding.path && (
             <p className="mt-1 flex items-center gap-1 font-mono text-xs text-ink-faint">
               <FileCode2 className="h-3 w-3" />
-              {finding.file}
+              {finding.path}
               {finding.line != null && `:${finding.line}`}
+              {finding.end_line != null && `-${finding.end_line}`}
             </p>
           )}
         </div>
@@ -64,6 +65,23 @@ export function FindingCard({ finding }: { finding: Finding }) {
               </p>
               <p className="leading-relaxed text-ink-muted">{finding.suggestion}</p>
             </div>
+          )}
+          {finding.evidence && finding.evidence.length > 0 && (
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                Evidence
+              </p>
+              <ul className="list-disc space-y-0.5 pl-4 font-mono text-xs text-ink-muted">
+                {finding.evidence.map((e, i) => (
+                  <li key={i}>{e}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {finding.merged_from && finding.merged_from.length > 0 && (
+            <p className="text-xs text-ink-faint">
+              Also raised by: {finding.merged_from.join(", ")}
+            </p>
           )}
         </div>
       )}

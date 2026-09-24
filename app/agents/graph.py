@@ -1,76 +1,72 @@
 """LangGraph orchestration for a single PR review.
 
-Topology:
+    START ─┬─▶ security ────┐
+           ├─▶ correctness ─┼─▶ reflection ─▶ judge ─┬───────────▶ human_gate ─▶ publish ─▶ END
+           └─▶ style ───────┘                        │ score low      ▲
+            (parallel agents)                         └─▶ revise ─▶ judge (at most once)
 
-    START ──┬──▶ security ────┐
-            ├──▶ correctness ─┼──▶ reflection ──▶ judge ──▶ human_gate ──▶ END
-            └──▶ style ───────┘
-            (parallel)          (consolidate +     (LLM-as-   (HITL flag)
-                                 self-reflection)   Judge)
-
-The three reviewers fan out in parallel; reflection joins them. The human_gate
-node sets `requires_human_approval` when the judge score falls below the configured
-threshold — the API then blocks auto-application of the review until a human
-approves via POST /reviews/{id}/approve. (Swap the gate for LangGraph `interrupt()`
-+ a Postgres checkpointer to get true in-graph pause/resume.)
+- Reviewers are tool-using agents (``app.agents.reviewers``); reflection returns
+  decisions that code applies (``app.agents.reflection``); the judge scores the
+  result (``app.eval.judge``). A low score triggers at most one ``revise`` round,
+  if the budget allows.
+- ``human_gate`` computes why the review needs attention (``gate_reasons``). What
+  it does next depends on the mode:
+    report (default: MCP, eval, tests)   records the reasons; never pauses
+    action (GitHub Action)               same; the check run carries the verdict
+    local  (FastAPI jobs)                ``interrupt()`` until a human decides
+- ``publish`` hands the final state to ``deps.publisher`` when one is set.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 
-from app.agents.reflection import ReflectionAgent
-from app.agents.reviewers import (
-    CorrectnessReviewer,
-    SecurityReviewer,
-    StyleReviewer,
-)
+from app.agents.deps import EngineDeps, GraphMode, Publisher
+from app.agents.reflection import make_reflection_node
+from app.agents.reviewers import REVIEWER_ROLES, make_reviewer_node
 from app.agents.state import ReviewState
-from app.agents.tools import ReviewTools
 from app.config import Settings, get_settings
+from app.diff import Diff, parse_diff
 from app.eval.judge import LLMJudge
+from app.llm.budget import BudgetGuard
 from app.llm.client import LLMClient
+from app.review_config import ReviewConfig, default_review_config
+from app.workspace import Workspace
+
+# Node order as the console shows it. Mirrored in ReviewService.STAGE_ORDER and
+# web/src/lib (useReviewStream.ts, format.ts, types.ts), StageTimeline.tsx.
+STAGES = (*REVIEWER_ROLES, "reflection", "judge", "revise", "human_gate", "publish")
 
 
-@dataclass
-class GraphDeps:
-    client: LLMClient
-    tools: ReviewTools
-    reflection: ReflectionAgent
-    judge: LLMJudge
-    settings: Settings
+def compute_gate_reasons(state: ReviewState, cfg: ReviewConfig) -> list[str]:
+    """Why this review needs a human's attention. Pure: safe to re-run on resume."""
+    reasons = [
+        f"{f['severity']} finding: {f['title']}"
+        for f in state.get("findings", [])
+        if f.get("severity") in cfg.fail_on
+    ]
+    score = state.get("judge_score")
+    if score is None:
+        reasons.append("budget-limited: not judged")
+    elif score < cfg.gate_threshold:
+        reasons.append(f"judge score {score:.2f} < {cfg.gate_threshold:.2f}")
+    return reasons
 
 
-def build_review_graph(deps: GraphDeps):
-    """Compile the review graph with bound dependencies."""
-
-    security = SecurityReviewer(deps.client)
-    correctness = CorrectnessReviewer(deps.client)
-    style = StyleReviewer(deps.client)
-
-    def _reviewer_node(agent):
-        async def node(state: ReviewState) -> dict:
-            out = await agent.review(
-                repo=state["repo"],
-                pr_number=state.get("pr_number"),
-                diff=state["diff"],
-                tools=deps.tools,
-            )
-            return {"draft_findings": out["findings"], "traces": [out["trace"]]}
-
-        return node
-
-    async def reflection_node(state: ReviewState) -> dict:
-        out = await deps.reflection.reflect(
-            diff=state["diff"], draft_findings=state.get("draft_findings", [])
-        )
-        return {"findings": out["findings"], "summary": out["summary"]}
+def build_review_graph(deps: EngineDeps, *, mode: GraphMode = "report", checkpointer=None):
+    """Compile the review graph. ``local`` mode requires a checkpointer."""
+    if mode == "local" and checkpointer is None:
+        raise ValueError("local mode pauses at the gate and needs a checkpointer")
+    judge = LLMJudge(deps.client, deps.cfg, deps.budget, deps.settings)
 
     async def judge_node(state: ReviewState) -> dict:
-        out = await deps.judge.score(
-            diff=state["diff"],
+        if not deps.stubbed and not deps.budget.can_start("judge"):
+            deps.budget.mark_limited("judge")
+            return {"judge_score": None, "judge_dimensions": {}, "budget_limited": True,
+                    "judge_rationale": "Not judged: the review budget was reached."}
+        out = await judge.score(
+            diff=deps.workspace.diff.render(),
             findings=state.get("findings", []),
             summary=state.get("summary", ""),
         )
@@ -80,49 +76,81 @@ def build_review_graph(deps: GraphDeps):
             "judge_dimensions": out.get("dimensions", {}),
         }
 
+    def after_judge(state: ReviewState) -> str:
+        score = state.get("judge_score")
+        if (
+            score is not None
+            and score < deps.cfg.gate_threshold
+            and state.get("revision_count", 0) == 0
+            and not deps.stubbed
+            and deps.budget.can_start("revise")
+        ):
+            return "revise"
+        return "human_gate"
+
     def human_gate_node(state: ReviewState) -> dict:
-        score = state.get("judge_score", 0.0)
-        has_critical = any(
-            f.get("severity") in ("critical", "high") for f in state.get("findings", [])
-        )
-        requires = score < deps.settings.hitl_threshold or has_critical
-        return {"requires_human_approval": requires, "approved": None}
+        reasons = compute_gate_reasons(state, deps.cfg)
+        update = {
+            "gate_tripped": bool(reasons),
+            "gate_reasons": reasons,
+            "requires_human_approval": bool(reasons),
+        }
+        if mode != "local" or not reasons:
+            return update
+        # Pauses the graph; on resume this node re-runs from the top and
+        # interrupt() returns the decision, e.g. {"approved": True, "note": "..."}.
+        decision = interrupt({"reasons": reasons, "judge_score": state.get("judge_score")})
+        return {
+            **update,
+            "decision": "approved" if decision.get("approved") else "rejected",
+            "decision_note": decision.get("note"),
+        }
+
+    async def publish_node(state: ReviewState) -> dict:
+        if deps.publisher is None:
+            return {}
+        return await deps.publisher(dict(state)) or {}
 
     graph = StateGraph(ReviewState)
-    graph.add_node("security", _reviewer_node(security))
-    graph.add_node("correctness", _reviewer_node(correctness))
-    graph.add_node("style", _reviewer_node(style))
-    graph.add_node("reflection", reflection_node)
+    for role in REVIEWER_ROLES:
+        graph.add_node(role, make_reviewer_node(role, deps))
+        graph.add_edge(START, role)
+        graph.add_edge(role, "reflection")  # reflection waits for all three
+    graph.add_node("reflection", make_reflection_node(deps))
     graph.add_node("judge", judge_node)
+    graph.add_node("revise", make_reflection_node(deps, revise=True))
     graph.add_node("human_gate", human_gate_node)
-
-    # Fan out to the parallel reviewers.
-    graph.add_edge(START, "security")
-    graph.add_edge(START, "correctness")
-    graph.add_edge(START, "style")
-
-    # Join at reflection (waits for all three reviewers).
-    graph.add_edge("security", "reflection")
-    graph.add_edge("correctness", "reflection")
-    graph.add_edge("style", "reflection")
+    graph.add_node("publish", publish_node)
 
     graph.add_edge("reflection", "judge")
-    graph.add_edge("judge", "human_gate")
-    graph.add_edge("human_gate", END)
+    graph.add_conditional_edges("judge", after_judge, ["revise", "human_gate"])
+    graph.add_edge("revise", "judge")
+    graph.add_edge("human_gate", "publish")
+    graph.add_edge("publish", END)
+    return graph.compile(checkpointer=checkpointer)
 
-    return graph.compile()
+
+def prepare_diff(text: str, cfg: ReviewConfig) -> Diff:
+    """Parse the PR diff, drop ignored paths, and keep at most ``max_files`` files."""
+    kept, _skipped = parse_diff(text).filter(list(cfg.ignore_paths)).limit(cfg.max_files)
+    return kept
 
 
 def make_deps(
     client: LLMClient,
-    tools: ReviewTools,
+    workspace: Workspace,
     settings: Settings | None = None,
-) -> GraphDeps:
+    *,
+    cfg: ReviewConfig | None = None,
+    publisher: Publisher | None = None,
+) -> EngineDeps:
     settings = settings or get_settings()
-    return GraphDeps(
+    cfg = cfg or default_review_config(settings)
+    return EngineDeps(
         client=client,
-        tools=tools,
-        reflection=ReflectionAgent(client),
-        judge=LLMJudge(client),
+        workspace=workspace,
         settings=settings,
+        cfg=cfg,
+        budget=BudgetGuard(cfg.budget_usd, tracker=client.tracker),
+        publisher=publisher,
     )

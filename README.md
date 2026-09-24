@@ -272,11 +272,11 @@ All settings are environment-driven; see [`.env.example`](.env.example).
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | — | Claude API key (required) |
-| `CODESAGE_MODEL` | `claude-opus-4-8` | Primary reviewing model |
-| `CODESAGE_JUDGE_MODEL` | `claude-opus-4-8` | LLM-as-Judge model |
+| `CODESAGE_MODEL` | `claude-sonnet-5` | Reviewer and reflection agents |
+| `CODESAGE_JUDGE_MODEL` | `claude-opus-5` | LLM-as-Judge model |
 | `CODESAGE_EMBED_MODEL` | `voyage-3` (or hash fallback) | Embedding model |
 | `DATABASE_URL` | `postgresql+asyncpg://codesage:codesage@db:5432/codesage` | Postgres DSN |
-| `CODESAGE_EFFORT` | `high` | Claude effort level |
+| `CODESAGE_REVIEWER_EFFORT` / `CODESAGE_JUDGE_EFFORT` | `medium` / `high` | Claude effort per role |
 | `CODESAGE_HITL_THRESHOLD` | `0.6` | Judge score below which human approval is required |
 | `CODESAGE_API_KEYS` | — | Comma-separated API keys (**required**; the API fails closed without one) |
 | `CODESAGE_AUTH_DISABLED` | `false` | Skip auth entirely — local development only |

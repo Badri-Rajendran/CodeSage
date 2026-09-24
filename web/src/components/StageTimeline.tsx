@@ -1,4 +1,15 @@
-import { Check, Loader2, ShieldCheck, Bug, Sparkles, GitMerge, Scale, UserCheck } from "lucide-react";
+import {
+  Bug,
+  Check,
+  GitMerge,
+  Loader2,
+  RefreshCw,
+  Scale,
+  Send,
+  ShieldCheck,
+  Sparkles,
+  UserCheck,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { STAGES } from "../lib/format";
 import type { StageState } from "../lib/useReviewStream";
@@ -9,7 +20,9 @@ const ICONS: Record<string, ReactNode> = {
   style: <Sparkles className="h-4 w-4" />,
   reflection: <GitMerge className="h-4 w-4" />,
   judge: <Scale className="h-4 w-4" />,
+  revise: <RefreshCw className="h-4 w-4" />,
   human_gate: <UserCheck className="h-4 w-4" />,
+  publish: <Send className="h-4 w-4" />,
 };
 
 export function StageTimeline({
@@ -37,7 +50,7 @@ export function StageTimeline({
               <div>
                 <p
                   className={`text-sm font-medium ${
-                    st === "pending" ? "text-ink-faint" : "text-ink"
+                    st === "pending" || st === "skipped" ? "text-ink-faint" : "text-ink"
                   }`}
                 >
                   {stage.label}
@@ -93,7 +106,7 @@ function StageStatusChip({
   if (status === "completed") {
     const showCount =
       typeof count === "number" &&
-      ["security", "correctness", "style", "reflection"].includes(stageId);
+      ["security", "correctness", "style", "reflection", "revise"].includes(stageId);
     return (
       <span className="text-xs font-medium text-emerald-500">
         {showCount ? `${count} finding${count === 1 ? "" : "s"}` : "Done"}
@@ -102,6 +115,9 @@ function StageStatusChip({
   }
   if (status === "running") {
     return <span className="text-xs font-medium text-brand-400">Running…</span>;
+  }
+  if (status === "skipped") {
+    return <span className="text-xs text-ink-faint">Not needed</span>;
   }
   return <span className="text-xs text-ink-faint">Queued</span>;
 }

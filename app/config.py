@@ -29,8 +29,6 @@ class Settings(BaseSettings):
     judge_model: str = Field(default="claude-opus-5", alias="CODESAGE_JUDGE_MODEL")
     reviewer_effort: str = Field(default="medium", alias="CODESAGE_REVIEWER_EFFORT")
     judge_effort: str = Field(default="high", alias="CODESAGE_JUDGE_EFFORT")
-    # Effort for LLMClient.structured() calls (legacy single-call path).
-    effort: str = Field(default="high", alias="CODESAGE_EFFORT")
     max_tokens: int = Field(default=8000, alias="CODESAGE_MAX_TOKENS")
     # Hard cap on model spend per review (USD).
     budget_usd: float = Field(default=0.50, alias="CODESAGE_BUDGET_USD")

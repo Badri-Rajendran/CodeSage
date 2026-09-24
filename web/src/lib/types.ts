@@ -3,14 +3,19 @@
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
 
 export interface Finding {
+  id?: string | null;
+  reviewer?: string | null;
+  category?: string | null;
   title: string;
   severity: Severity | string;
   rationale: string;
   confidence: number;
-  file?: string | null;
+  path?: string | null;
   line?: number | null;
+  end_line?: number | null;
   suggestion?: string | null;
-  reviewer?: string | null;
+  evidence?: string[];
+  merged_from?: string[];
 }
 
 export interface TraceStep {
@@ -97,7 +102,9 @@ export type StageName =
   | "style"
   | "reflection"
   | "judge"
-  | "human_gate";
+  | "revise"
+  | "human_gate"
+  | "publish";
 
 export interface ReviewStartedEvent {
   type: "review.started";
@@ -119,6 +126,8 @@ export interface StageCompletedEvent {
   judge_dimensions?: Record<string, number>;
   judge_rationale?: string;
   requires_human_approval?: boolean;
+  gate_reasons?: string[];
+  github_review_url?: string | null;
 }
 
 export interface TelemetryUpdateEvent {
