@@ -44,6 +44,10 @@ class JobManager:
         self._spawn(review_id, job)
 
     def submit_resume(self, review_id: uuid.UUID, *, approved: bool, note: str | None) -> None:
+        running = self._tasks.get(str(review_id))
+        if running is not None and not running.done():  # belt and braces: decide() is atomic
+            logger.warning("Review %s is already running; ignoring a second resume.", review_id)
+            return
         self.broker.reopen(str(review_id))
 
         async def job(service: ReviewService, emit: EventSink) -> None:

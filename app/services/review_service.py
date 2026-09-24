@@ -354,16 +354,28 @@ class ReviewService:
         return result
 
     async def decide(self, review_id: str, *, approved: bool, note: str | None) -> dict:
-        """Record the human decision on a paused review; the caller then resumes it."""
+        """Record the human decision on a paused review; the caller then resumes it.
+
+        The awaiting_approval -> running transition is one conditional UPDATE, so
+        of two concurrent decisions exactly one wins and the other gets 409.
+        """
         rid = parse_review_id(review_id)
-        review = await self._load(rid)
-        if review.status != "awaiting_approval":
-            raise ReviewConflict(f"review is {review.status}, not awaiting approval")
-        review.decision = "approved" if approved else "rejected"
-        review.decision_note = note
-        review.decided_at = datetime.now(UTC)
-        review.status = "running"  # a second decision now gets 409
+        result = await self.session.execute(
+            update(Review)
+            .where(Review.id == rid, Review.status == "awaiting_approval")
+            .values(
+                status="running",
+                decision="approved" if approved else "rejected",
+                decision_note=note,
+                decided_at=datetime.now(UTC),
+            )
+            .returning(Review.id)
+        )
+        won = result.scalar_one_or_none() is not None
         await self.session.commit()
+        review = await self._load(rid)  # 404 if it doesn't exist
+        if not won:
+            raise ReviewConflict(f"review is {review.status}, not awaiting approval")
         await self.session.refresh(review)
         return _review_to_dict(review)
 
