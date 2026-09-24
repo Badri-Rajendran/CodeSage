@@ -175,7 +175,8 @@ class Workspace:
         target = (self.root / rel).resolve()
         if not target.is_relative_to(self.root):
             raise PermissionError(f"path escapes the repository: {path}")
-        if ".git" in target.relative_to(self.root).parts:
+        # Case-folded: on case-insensitive filesystems ".GIT/config" is .git/config.
+        if any(p.casefold() == ".git" for p in target.relative_to(self.root).parts):
             raise PermissionError("the .git directory is off limits")
         return target
 
