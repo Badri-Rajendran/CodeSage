@@ -17,17 +17,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING
 
 from app.agents.sandbox import Sandbox, SandboxResult
 from app.config import Settings, get_settings
-from app.db.vector_store import RetrievedChunk, VectorStore
 from app.logging_config import get_logger
+from app.rag.types import RetrievedChunk
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_logger(__name__)
 
-SessionFactoryT = Callable[[], AbstractAsyncContextManager[AsyncSession]]
+SessionFactoryT = Callable[[], AbstractAsyncContextManager["AsyncSession"]]
 
 TOOL_SCHEMAS = [
     {
@@ -80,6 +82,8 @@ class ReviewTools:
     ) -> list[RetrievedChunk]:
         if self.session_factory is None:
             return []
+        from app.db.vector_store import VectorStore  # server extra; only with a DB
+
         try:
             async with self.session_factory() as session:
                 return await VectorStore(session).search(

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from app.agents.react import ReactTrace
 from app.agents.tools import ReviewTools
-from app.db.vector_store import RetrievedChunk
 from app.llm.client import LLMClient
 from app.llm.prompts import FINDINGS_SCHEMA
+from app.rag.types import RetrievedChunk
 
 
 def _format_context(chunks: list[RetrievedChunk]) -> str:
