@@ -51,6 +51,9 @@ dev = [
 [project.scripts]
 codesage-api = "app.main:run"
 codesage-mcp = "app.mcp.server:main"
+# The Action calls this, not `python -m app.action`: -m would put the reviewed
+# repo (the working directory) first on sys.path, importing its own `app/`.
+codesage-action = "app.action.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["app*", "scripts*"]
