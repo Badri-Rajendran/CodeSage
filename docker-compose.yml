@@ -9,7 +9,8 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./migrations/0001_init.sql:/docker-entrypoint-initdb.d/0001_init.sql:ro
+      # Every migration runs on a fresh volume; existing volumes: python -m scripts.migrate
+      - ./migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codesage} -d ${POSTGRES_DB:-codesage}"]
       interval: 5s
