@@ -80,6 +80,13 @@ function StageNode({
       </span>
     );
   }
+  if (status === "awaiting") {
+    return (
+      <span className="z-10 grid h-8 w-8 place-items-center rounded-full border-2 border-amber-500 bg-surface text-amber-500">
+        {children}
+      </span>
+    );
+  }
   if (status === "running") {
     return (
       <span className="z-10 grid h-8 w-8 animate-pulse-ring place-items-center rounded-full border-2 border-brand-500 bg-surface text-brand-400">
@@ -118,6 +125,9 @@ function StageStatusChip({
   }
   if (status === "skipped") {
     return <span className="text-xs text-ink-faint">Not needed</span>;
+  }
+  if (status === "awaiting") {
+    return <span className="text-xs font-medium text-amber-500">Waiting for you</span>;
   }
   return <span className="text-xs text-ink-faint">Queued</span>;
 }

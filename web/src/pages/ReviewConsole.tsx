@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { useReviewStream } from "../lib/useReviewStream";
-import { fmtUsd, fmtTokens, SEVERITY_ORDER } from "../lib/format";
+import { fmtUsd, fmtTokens, SEVERITY_ORDER, STAGES } from "../lib/format";
 import { Card, CardHeader, EmptyState, PageHeader, Spinner, Stat } from "../components/ui";
 import { StageTimeline } from "../components/StageTimeline";
 import { FindingCard } from "../components/FindingCard";
@@ -210,13 +210,15 @@ export function ReviewConsole() {
           <Card>
             <CardHeader
               title="Pipeline"
-              subtitle={live.model ? `Running on ${live.model}` : "6 stages"}
+              subtitle={live.model ? `Running on ${live.model}` : `${STAGES.length} stages`}
               icon={<CircleDot className="h-4 w-4" />}
               actions={
                 live.status === "streaming" ? (
                   <span className="flex items-center gap-1.5 text-xs font-medium text-brand-400">
                     <Spinner className="h-3 w-3" /> Live
                   </span>
+                ) : live.status === "awaiting" ? (
+                  <span className="text-xs font-medium text-amber-500">Paused</span>
                 ) : live.status === "completed" ? (
                   <span className="text-xs font-medium text-emerald-500">Done</span>
                 ) : null

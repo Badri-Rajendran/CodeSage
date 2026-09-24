@@ -9,7 +9,7 @@ import type {
   Trace,
 } from "./types";
 
-export type StageStatus = "pending" | "running" | "completed" | "skipped";
+export type StageStatus = "pending" | "running" | "completed" | "skipped" | "awaiting";
 
 export interface StageState {
   status: StageStatus;
@@ -325,6 +325,15 @@ function reduce(prev: LiveReview, ev: ReviewEvent): LiveReview {
       return {
         ...prev,
         status: "awaiting",
+        // Paused inside the gate: revise didn't run, the gate waits for a human.
+        stages: {
+          ...prev.stages,
+          revise:
+            prev.stages.revise?.status === "completed"
+              ? prev.stages.revise
+              : { ...prev.stages.revise, status: "skipped" },
+          human_gate: { ...prev.stages.human_gate, status: "awaiting" },
+        },
         result: ev.review,
         summary: ev.review.summary ?? prev.summary,
         judgeScore: ev.review.judge_score ?? prev.judgeScore,
