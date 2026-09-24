@@ -13,7 +13,7 @@ doctl auth init                    # paste your DigitalOcean API token
 ssh-keygen -t ed25519              # if you don't already have a key
 
 # 2. Configure
-cp .env.example .env               # add ANTHROPIC_API_KEY, set a strong POSTGRES_PASSWORD
+cp .env.example .env               # add ANTHROPIC_API_KEY, CODESAGE_API_KEYS, a strong POSTGRES_PASSWORD
 
 # 3. Provision + deploy (creates the droplet, installs Docker, ships the stack)
 ./deploy/deploy.sh

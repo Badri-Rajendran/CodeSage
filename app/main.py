@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api.routes import router
+from app.api.routes import public_router, router
 from app.config import get_settings
 from app.llm.client import LLMClient
 from app.logging_config import configure_logging, get_logger
@@ -24,6 +24,15 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     mode = "STUB (no API key)" if not settings.has_llm else f"model={settings.model}"
     logger.info("CodeSage %s starting up — %s", __version__, mode)
+    if settings.auth_disabled:
+        logger.warning("API authentication is DISABLED (CODESAGE_AUTH_DISABLED); local dev only.")
+    elif not settings.api_key_list:
+        logger.error("No CODESAGE_API_KEYS configured — all /api/v1 routes will return 503.")
+    if settings.sandbox_enabled:
+        logger.warning(
+            "Sandboxed test execution is ENABLED: diff-supplied tests run with process-level "
+            "isolation only. Use only with trusted input."
+        )
     # Real-time progress fan-out + background review runner, shared across requests.
     app.state.broker = ReviewBroker()
     app.state.job_manager = JobManager(app.state.broker)
@@ -46,6 +55,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(public_router)
 app.include_router(router)
 
 

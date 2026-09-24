@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import {
   Activity,
@@ -7,12 +7,15 @@ import {
   FlaskConical,
   Gauge,
   History,
+  KeyRound,
   Moon,
   ShieldQuestion,
   Sun,
 } from "lucide-react";
 import { useTheme } from "../lib/theme";
 import { api, type ServiceInfo } from "../lib/api";
+import { AUTH_REQUIRED_EVENT, getApiKey } from "../lib/auth";
+import { ApiKeyDialog } from "./ApiKeyDialog";
 
 const NAV = [
   { to: "/", label: "Review Console", icon: Activity, end: true },
@@ -77,6 +80,22 @@ function Topbar() {
   const { theme, toggle } = useTheme();
   const [info, setInfo] = useState<ServiceInfo | null>(null);
   const [down, setDown] = useState(false);
+  const [keyDialog, setKeyDialog] = useState<{ open: boolean; reason?: string }>({
+    open: false,
+  });
+  const closeKeyDialog = useCallback(() => setKeyDialog({ open: false }), []);
+
+  useEffect(() => {
+    const onAuthRequired = () =>
+      setKeyDialog({
+        open: true,
+        reason: getApiKey()
+          ? "The API rejected the saved key. Enter a valid one."
+          : "The CodeSage API requires a key. It is stored in this browser only.",
+      });
+    window.addEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
+    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -107,6 +126,18 @@ function Topbar() {
             {info.model}
           </span>
         )}
+        {info?.auth_required && (
+          <button
+            onClick={() => setKeyDialog({ open: true })}
+            aria-label="Set API key"
+            title={getApiKey() ? "API key saved" : "Set API key"}
+            className={`grid h-9 w-9 place-items-center rounded-lg border bg-surface hover:text-ink ${
+              getApiKey() ? "border-line text-ink-muted" : "border-amber-500/40 text-amber-400"
+            }`}
+          >
+            <KeyRound className="h-4 w-4" />
+          </button>
+        )}
         <button
           onClick={toggle}
           aria-label="Toggle theme"
@@ -115,6 +146,7 @@ function Topbar() {
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </button>
       </div>
+      <ApiKeyDialog open={keyDialog.open} reason={keyDialog.reason} onClose={closeKeyDialog} />
     </header>
   );
 }

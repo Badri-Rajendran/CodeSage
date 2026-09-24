@@ -6,16 +6,24 @@ conservative: a temp working directory, a hard timeout, a restricted environment
 and no network expectation. It runs only code extracted from the diff's added
 lines for files that look like tests.
 
-NOTE: this is process-level isolation suitable for trusted/CI contexts. For
-fully-untrusted input, run it inside the container with seccomp/gVisor or a
-disposable microVM — the interface here is designed to drop in such a backend.
+SECURITY: this is process-level isolation only. The tests run as the API's own
+user, with its network access and filesystem view, so they can read anything
+the API process can (including its environment via /proc). It is therefore
+disabled by default (``CODESAGE_SANDBOX_ENABLED=false``) and forced off in the
+production compose file. Enable it only for trusted input; untrusted input
+needs a disposable container/gVisor/microVM backend behind this interface.
+
+On timeout the whole process group is killed, so tests that fork or sleep
+cannot outlive the review.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import re
+import signal
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -108,16 +116,23 @@ class Sandbox:
                 env=env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                # New session → own process group, so a timeout can kill pytest
+                # and anything the tests spawned.
+                start_new_session=True,
             )
+        except FileNotFoundError:  # pragma: no cover
+            return SandboxResult(False, False, "pytest not available in sandbox.")
+        try:
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=self.settings.sandbox_timeout_s
             )
         except TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            await proc.wait()
             return SandboxResult(
                 True, False, f"Tests exceeded {self.settings.sandbox_timeout_s}s timeout."
             )
-        except FileNotFoundError:  # pragma: no cover
-            return SandboxResult(False, False, "pytest not available in sandbox.")
 
         out = stdout.decode(errors="ignore")
         err = stderr.decode(errors="ignore")

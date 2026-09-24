@@ -5,8 +5,10 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.main import app
+from tests.conftest import API_KEY
 
 client = TestClient(app)
+AUTH = {"Authorization": f"Bearer {API_KEY}"}
 
 
 def test_healthz():
@@ -25,5 +27,5 @@ def test_root_reports_stub_mode():
 
 def test_review_request_validation_requires_diff_or_pr():
     # Neither diff nor pr_number → 422 from the request model validator.
-    resp = client.post("/api/v1/reviews", json={"repo": "demo/x"})
+    resp = client.post("/api/v1/reviews", json={"repo": "demo/x"}, headers=AUTH)
     assert resp.status_code == 422

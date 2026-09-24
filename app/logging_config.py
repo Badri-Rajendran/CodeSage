@@ -7,7 +7,9 @@ import sys
 
 
 def configure_logging(level: str = "INFO") -> None:
-    handler = logging.StreamHandler(sys.stdout)
+    # stderr, never stdout: the MCP stdio transport owns stdout for JSON-RPC, and
+    # any log line written there corrupts the protocol stream.
+    handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(
         logging.Formatter(
             fmt="%(asctime)s %(levelname)-7s %(name)s :: %(message)s",

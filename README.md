@@ -89,9 +89,13 @@ Every node records token usage and cost via the telemetry layer.
 ```bash
 git clone https://github.com/badrinarayanan/CodeSage.git
 cd CodeSage
-cp .env.example .env          # add your ANTHROPIC_API_KEY
+cp .env.example .env          # add your ANTHROPIC_API_KEY and a CODESAGE_API_KEYS value
 docker compose up --build
 ```
+
+The API requires a key on every `/api/v1` route (see [Security](#security)).
+Generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"`,
+put it in `CODESAGE_API_KEYS`, and paste it into the console when it asks.
 
 This starts three services wired together by `docker-compose.yml`:
 
@@ -201,6 +205,7 @@ npm run dev      # http://localhost:5173, proxies /api to localhost:8000
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/reviews \
+  -H "Authorization: Bearer $CODESAGE_API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{
     "repo": "octocat/hello-world",
@@ -217,6 +222,7 @@ You'll get back findings grouped by reviewer, a judge score, and a
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
+export CODESAGE_AUTH_DISABLED=true    # local only; or set CODESAGE_API_KEYS
 # bring up just Postgres+pgvector:
 docker compose up -d db
 export DATABASE_URL=postgresql+asyncpg://codesage:codesage@localhost:5432/codesage
@@ -272,6 +278,28 @@ All settings are environment-driven; see [`.env.example`](.env.example).
 | `DATABASE_URL` | `postgresql+asyncpg://codesage:codesage@db:5432/codesage` | Postgres DSN |
 | `CODESAGE_EFFORT` | `high` | Claude effort level |
 | `CODESAGE_HITL_THRESHOLD` | `0.6` | Judge score below which human approval is required |
+| `CODESAGE_API_KEYS` | — | Comma-separated API keys (**required**; the API fails closed without one) |
+| `CODESAGE_AUTH_DISABLED` | `false` | Skip auth entirely — local development only |
+| `CODESAGE_INGEST_ROOTS` | — (compose: `/app`) | Directories `POST /ingest` may read; empty disables API ingest |
+| `CODESAGE_SANDBOX_ENABLED` | `false` | Run diff-supplied tests (process isolation only; forced off in prod) |
+| `CODESAGE_CORS_ORIGINS` | — | Allowed cross-origin callers; empty allows none |
+
+## Security
+
+- **Authentication.** Every `/api/v1` route except `/api/v1/meta` requires
+  `Authorization: Bearer <key>` or `X-API-Key: <key>`, checked against
+  `CODESAGE_API_KEYS`. With no keys configured the API returns 503 rather than
+  running open. The web console stores the key in the browser and streams
+  review progress with `fetch` so the key never appears in a URL.
+- **Sandbox.** Executing tests from a diff uses process-level isolation only —
+  tests run as the API user with its network and filesystem access. It is off by
+  default and forced off by `deploy/docker-compose.prod.yml`; enable it only for
+  trusted input. Timeouts kill the whole process group.
+- **Ingestion** over the API is limited to `CODESAGE_INGEST_ROOTS` (symlinks and
+  `..` are resolved first). Eval runs over the API only read datasets in
+  `eval/datasets/`, and GitHub repo names are validated before the token is used.
+- **Deploy.** `deploy/deploy.sh` refuses to ship without `CODESAGE_API_KEYS` or
+  with `CODESAGE_AUTH_DISABLED` set.
 
 ## Tech stack
 

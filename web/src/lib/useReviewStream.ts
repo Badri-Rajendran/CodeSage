@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { streamUrl } from "./api";
+import { authHeaders, notifyAuthRequired } from "./auth";
 import type {
   Finding,
   Review,
@@ -85,11 +86,11 @@ function recomputeRunning(stages: Record<string, StageState>): Record<string, St
  */
 export function useReviewStream() {
   const [live, setLive] = useState<LiveReview>(initialState);
-  const esRef = useRef<EventSource | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const close = useCallback(() => {
-    esRef.current?.close();
-    esRef.current = null;
+    abortRef.current?.abort();
+    abortRef.current = null;
   }, []);
 
   const reset = useCallback(() => {
@@ -100,41 +101,24 @@ export function useReviewStream() {
   const start = useCallback(
     (reviewId: string) => {
       close();
-      setLive({ ...initialState(), reviewId, status: "streaming" });
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      const fresh = () => setLive({ ...initialState(), reviewId, status: "streaming" });
+      fresh();
 
-      const es = new EventSource(streamUrl(reviewId));
-      esRef.current = es;
-
-      const handle = (ev: ReviewEvent) => {
-        setLive((prev) => reduce(prev, ev));
-      };
-
-      const types = [
-        "review.started",
-        "stage.completed",
-        "telemetry.update",
-        "review.completed",
-        "review.failed",
-      ];
-      for (const t of types) {
-        es.addEventListener(t, (e) => {
-          try {
-            handle(JSON.parse((e as MessageEvent).data));
-          } catch {
-            /* ignore malformed frame */
-          }
-        });
-      }
-
-      es.onerror = () => {
-        // The browser auto-reconnects; if the stream already finished, close it.
-        setLive((prev) => {
-          if (prev.status === "completed" || prev.status === "failed") {
-            es.close();
-          }
-          return prev;
-        });
-      };
+      void consumeStream(reviewId, ctrl.signal, {
+        // The broker replays every buffered event on (re)connect, so each
+        // attempt rebuilds the view from a clean slate.
+        onConnect: fresh,
+        onEvent: (ev) => setLive((prev) => reduce(prev, ev)),
+        onFatal: (error) =>
+          setLive((prev) => ({
+            ...prev,
+            status: "failed",
+            error,
+            log: [{ ts: Date.now(), label: error, tone: "err" }, ...prev.log],
+          })),
+      });
     },
     [close],
   );
@@ -142,6 +126,86 @@ export function useReviewStream() {
   useEffect(() => () => close(), [close]);
 
   return { live, start, reset };
+}
+
+const TERMINAL = new Set(["review.completed", "review.failed"]);
+const MAX_ATTEMPTS = 5;
+const RETRY_MS = 3000;
+
+/**
+ * Reads the SSE stream with fetch (not EventSource) so the API key can travel
+ * in a header instead of the URL. Reconnects on dropped connections until a
+ * terminal event arrives or the caller aborts.
+ */
+async function consumeStream(
+  reviewId: string,
+  signal: AbortSignal,
+  cb: {
+    onConnect: () => void;
+    onEvent: (ev: ReviewEvent) => void;
+    onFatal: (error: string) => void;
+  },
+): Promise<void> {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS && !signal.aborted; attempt++) {
+    try {
+      const res = await fetch(streamUrl(reviewId), {
+        headers: { Accept: "text/event-stream", ...authHeaders() },
+        signal,
+      });
+      if (res.status === 401) {
+        notifyAuthRequired();
+        cb.onFatal("Unauthorized: set a valid API key to watch this review.");
+        return;
+      }
+      if (!res.ok || !res.body) {
+        cb.onFatal(`Stream failed: HTTP ${res.status}`);
+        return;
+      }
+      if (attempt > 1) cb.onConnect();
+      if (await readEvents(res.body, cb.onEvent)) return;
+    } catch {
+      if (signal.aborted) return;
+    }
+    await new Promise((r) => setTimeout(r, RETRY_MS));
+  }
+  if (!signal.aborted) cb.onFatal("Lost connection to the review stream.");
+}
+
+/** Parses SSE frames from `body`; resolves true once a terminal event is seen. */
+async function readEvents(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (ev: ReviewEvent) => void,
+): Promise<boolean> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return false;
+    buffer += decoder.decode(value, { stream: true });
+    let sep: number;
+    while ((sep = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      const data = frame
+        .split("\n")
+        .filter((l) => l.startsWith("data:"))
+        .map((l) => l.slice(5).trimStart())
+        .join("\n");
+      if (!data) continue; // retry hint or keep-alive comment
+      let ev: ReviewEvent;
+      try {
+        ev = JSON.parse(data);
+      } catch {
+        continue; // ignore malformed frame
+      }
+      onEvent(ev);
+      if (TERMINAL.has(ev.type)) {
+        await reader.cancel();
+        return true;
+      }
+    }
+  }
 }
 
 function reduce(prev: LiveReview, ev: ReviewEvent): LiveReview {

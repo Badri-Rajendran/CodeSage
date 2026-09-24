@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import require_api_key
 from app.api.schemas import (
     ApprovalRequest,
     EvalCompareRequest,
@@ -25,10 +26,15 @@ from app.config import get_settings
 from app.db.session import get_session
 from app.eval import store as eval_store
 from app.github.client import GitHubClient
-from app.rag.pipeline import ingest_path
+from app.rag.pipeline import IngestPathError, ingest_path, resolve_ingest_root
 from app.services.review_service import ReviewService
 
-router = APIRouter(prefix="/api/v1", tags=["codesage"])
+# Every route on `router` requires an API key; `public_router` is unauthenticated
+# and must only expose non-sensitive service metadata.
+router = APIRouter(
+    prefix="/api/v1", tags=["codesage"], dependencies=[Depends(require_api_key)]
+)
+public_router = APIRouter(prefix="/api/v1", tags=["meta"])
 
 
 async def _resolve_diff(body: ReviewRequest) -> str:
@@ -37,6 +43,8 @@ async def _resolve_diff(body: ReviewRequest) -> str:
     if not diff:
         try:
             diff = await GitHubClient().fetch_pr_diff(body.repo, body.pr_number)  # type: ignore[arg-type]
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except httpx.HTTPStatusError as exc:
             raise HTTPException(
                 status_code=502,
@@ -161,7 +169,7 @@ async def approve_review(
     return ReviewResponse(**result)
 
 
-@router.get("/meta")
+@public_router.get("/meta")
 async def meta() -> dict:
     """Service metadata for the web console (mirrors the root endpoint)."""
     from app import __version__
@@ -173,6 +181,7 @@ async def meta() -> dict:
         "llm_mode": "live" if settings.has_llm else "stub",
         "model": settings.model,
         "hitl_threshold": settings.hitl_threshold,
+        "auth_required": not settings.auth_disabled,
     }
 
 
@@ -188,14 +197,26 @@ async def ingest_repository(
     body: IngestRequest,
     session: AsyncSession = Depends(get_session),
 ) -> IngestResponse:
-    """Ingest a local repository path into the pgvector RAG index."""
-    result = await ingest_path(
-        session, root=body.path, repo=body.repo, replace=body.replace
-    )
+    """Ingest a server-side repository path into the pgvector RAG index.
+
+    Only paths under ``CODESAGE_INGEST_ROOTS`` are accepted.
+    """
+    try:
+        root = resolve_ingest_root(body.path, get_settings().ingest_root_list)
+    except IngestPathError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    result = await ingest_path(session, root=str(root), repo=body.repo, replace=body.replace)
     return IngestResponse(**result)
 
 
 # ── Eval / regression harness ──────────────────────────────────────────────────
+def _dataset_path(dataset: str) -> str:
+    try:
+        return str(eval_store.resolve_dataset(dataset))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/eval/runs")
 async def list_eval_runs() -> list[dict]:
     """List saved eval-harness results (runs and cross-version comparisons)."""
@@ -205,13 +226,15 @@ async def list_eval_runs() -> list[dict]:
 @router.post("/eval/runs", status_code=202)
 async def launch_eval_run(body: EvalRunRequest) -> dict:
     model = body.model or get_settings().model
-    eval_store.launch_run(body.dataset, model)
+    eval_store.launch_run(_dataset_path(body.dataset), model)
     return {"status": "scheduled", "dataset": body.dataset, "model": model}
 
 
 @router.post("/eval/compare", status_code=202)
 async def launch_eval_compare(body: EvalCompareRequest) -> dict:
-    eval_store.launch_compare(body.dataset, body.baseline, body.candidate, body.tolerance)
+    eval_store.launch_compare(
+        _dataset_path(body.dataset), body.baseline, body.candidate, body.tolerance
+    )
     return {
         "status": "scheduled",
         "dataset": body.dataset,

@@ -45,19 +45,40 @@ class Settings(BaseSettings):
     # ── Behavior ──────────────────────────────────────────────────────────────
     hitl_threshold: float = Field(default=0.6, alias="CODESAGE_HITL_THRESHOLD")
     rag_top_k: int = Field(default=6, alias="CODESAGE_RAG_TOP_K")
-    sandbox_enabled: bool = Field(default=True, alias="CODESAGE_SANDBOX_ENABLED")
+    # Off by default: the sandbox runs diff-supplied code with process-level
+    # isolation only, so enable it solely for trusted input.
+    sandbox_enabled: bool = Field(default=False, alias="CODESAGE_SANDBOX_ENABLED")
     sandbox_timeout_s: int = Field(default=30, alias="CODESAGE_SANDBOX_TIMEOUT_S")
+
+    # ── Security ──────────────────────────────────────────────────────────────
+    # Comma-separated API keys accepted on /api/v1 (Bearer or X-API-Key). With no
+    # keys configured the API fails closed unless auth is explicitly disabled.
+    api_keys: str = Field(default="", alias="CODESAGE_API_KEYS")
+    # Local development only — never set this on a reachable deployment.
+    auth_disabled: bool = Field(default=False, alias="CODESAGE_AUTH_DISABLED")
+    # Comma-separated directories POST /ingest may read from. Empty disables
+    # ingestion over the API (the CLI `scripts.ingest_repo` is unaffected).
+    ingest_roots: str = Field(default="", alias="CODESAGE_INGEST_ROOTS")
 
     # ── Server ────────────────────────────────────────────────────────────────
     host: str = Field(default="0.0.0.0", alias="CODESAGE_HOST")
     port: int = Field(default=8000, alias="CODESAGE_PORT")
     log_level: str = Field(default="INFO", alias="CODESAGE_LOG_LEVEL")
-    # Comma-separated list of allowed CORS origins for the web UI ("*" allows all).
-    cors_origins: str = Field(default="*", alias="CODESAGE_CORS_ORIGINS")
+    # Comma-separated list of allowed CORS origins. Empty (the default) allows no
+    # cross-origin callers; the web console is same-origin via its proxy.
+    cors_origins: str = Field(default="", alias="CODESAGE_CORS_ORIGINS")
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        return _split_csv(self.cors_origins)
+
+    @property
+    def api_key_list(self) -> list[str]:
+        return _split_csv(self.api_keys)
+
+    @property
+    def ingest_root_list(self) -> list[str]:
+        return _split_csv(self.ingest_roots)
 
     @property
     def has_llm(self) -> bool:
@@ -67,6 +88,10 @@ class Settings(BaseSettings):
     @property
     def has_embeddings_api(self) -> bool:
         return bool(self.voyage_api_key)
+
+
+def _split_csv(value: str) -> list[str]:
+    return [v.strip() for v in value.split(",") if v.strip()]
 
 
 @lru_cache

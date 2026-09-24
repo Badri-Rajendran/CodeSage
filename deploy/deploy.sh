@@ -35,6 +35,10 @@ command -v doctl >/dev/null 2>&1 || die "doctl not found. Install: https://docs.
 command -v ssh   >/dev/null 2>&1 || die "ssh not found."
 [[ -f "$PROJECT_ROOT/.env" ]] || die "Missing $PROJECT_ROOT/.env (cp .env.example .env and fill it in)."
 grep -q "ANTHROPIC_API_KEY=sk-" "$PROJECT_ROOT/.env" || log "Warning: ANTHROPIC_API_KEY may be unset in .env (CodeSage will run in stub mode)."
+grep -Eq '^CODESAGE_API_KEYS=.{16,}' "$PROJECT_ROOT/.env" \
+  || die "Set CODESAGE_API_KEYS in .env (16+ chars) before deploying; the API is public. Generate: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+grep -Eqi '^CODESAGE_AUTH_DISABLED=(true|1|yes)' "$PROJECT_ROOT/.env" \
+  && die "CODESAGE_AUTH_DISABLED is set in .env; refusing to deploy an unauthenticated API."
 
 deploy_to() {
   local ip="$1"

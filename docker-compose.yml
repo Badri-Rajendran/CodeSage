@@ -21,6 +21,8 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-codesage}:${POSTGRES_PASSWORD:-codesage}@db:5432/${POSTGRES_DB:-codesage}
+      # Let the console's RAG Ingestion page index the API's own source by default.
+      CODESAGE_INGEST_ROOTS: ${CODESAGE_INGEST_ROOTS:-/app}
     ports:
       - "8000:8000"
     depends_on:
