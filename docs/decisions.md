@@ -109,7 +109,26 @@ default for Sonnet 5 and Opus 5; `budget_tokens` is rejected on both.
 (public, default branch `main`), checked with the GitHub REST API. The local `origin` was
 updated to the new URL in Phase 0.
 
-## Open items for the Phase 1 spike
+## Phase 1 spike results (2026-09-24)
+
+Run in a throwaway venv with langchain 1.4.2, langchain-anthropic 1.7.4, langchain-core 1.6.5,
+langgraph 1.2.12, langgraph-checkpoint-postgres 3.1.2 and psycopg 3.3.6. The owner approved
+one paid run (the forced-finish case), which cost **$0.0115**.
+
+| # | Item | Result |
+|---|---|---|
+| 1 | `create_agent` + `ChatAnthropic("claude-sonnet-5")` + tools + adaptive thinking + `ProviderStrategy(Findings)` | **Pass (partly).** A call with tools bound, thinking on and `output_config.format` set made a tool call without error. The next call, carrying the thinking, tool-use and tool-result history, returned a valid `Findings` with the correct path and line. A full, unforced multi-step run wasn't paid for; Phase 4's manual run covers it. |
+| 2 | Budget middleware strips tools (`request.override(tools=[])` plus a "finish now" message) → structured final answer | **Pass.** 2 calls: a tool call, then `end_turn` with a valid `structured_response`. The recipe is `awrap_model_call`: price `resp.result`'s `AIMessage.usage_metadata` after `handler()`; once over the allowance, override `tools=[]` before calling it. |
+| 3 | `usage_metadata` token fields | **Pass, with a caveat.** `input_tokens` includes cached tokens. `input_token_details` has `cache_read`, `cache_creation`, `ephemeral_5m_input_tokens` and `ephemeral_1h_input_tokens`. When the TTL keys are present, langchain sets `cache_creation` to **0** and the writes are in the TTL keys, so pricing must use `cache_creation or (5m + 1h)`. 1h writes cost 2× input, 5m writes cost 1.25×. `output_token_details.reasoning` is also reported. Removing the tools changes the cached prefix, so the forced final call doesn't hit the cache. |
+| 4 | Refusals | **Answered from source:** `ChatAnthropic` doesn't raise. `stop_reason` is in `response_metadata`, and `ProviderStrategy` parsing of a refusal raises `StructuredOutputValidationError`. The reviewer node checks `stop_reason == "refusal"` and raises a clear error. |
+| 5 | `AsyncPostgresSaver` + `interrupt()` + `Command(resume=…)` across processes | **Pass** (pgvector container on port 5544). Process A stopped at the interrupt, and `__interrupt__` appeared in the `updates` stream with the payload. Process B resumed: the gate node re-ran from its start, then `publish` ran. Process C resumed the finished thread and got no updates; nothing re-ran. |
+
+**Dependency note:** unpinned, `langchain-anthropic` resolves `anthropic` 1.8.0 (1.x is out). The
+approved pin `anthropic>=0.120,<1` resolves 0.125.0, which satisfies langchain-anthropic, so
+the 1.x SDK upgrade stays out of scope for this round.
+
+## Open items for the Phase 1 spike (original list)
+
 
 These have to pass against the live API before Phase 3 starts. If one fails, the
 owner chooses the fallback.
