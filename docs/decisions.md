@@ -143,3 +143,19 @@ owner chooses the fallback.
 4. How `ChatAnthropic` surfaces `stop_reason == "refusal"`.
 5. `AsyncPostgresSaver` + `interrupt()` + `Command(resume=…)` survives a process
    restart with the upgraded `langgraph`.
+
+## Phase 4 verification (2026-09-24)
+
+The owner approved one paid run: the $0.02-budget case, on a throwaway clone with a planted
+`os.system(input())` commit. It cost **$0.057** over 6 calls.
+
+- All three reviewers ran real tool loops: `read_file` and `search_code`.
+- Each reviewer was forced to finish by the budget and still returned structured `Findings`.
+- Every finding has the correct `reviewer` and is anchored at `app/api/debug.py:10`.
+- Reflection and the judge were skipped for budget. `budget_limited` was set, and the gate reason
+  "budget-limited: not judged" was recorded.
+- **Minimum cost per reviewer:** about $0.02, because it needs one investigation call plus the
+  forced final answer. Budgets below about $0.06 are therefore overshot. This is by design:
+  enforcement happens between calls, and the real total is reported.
+- The normal $0.50 run and the forced revise-round run weren't paid for. They're checked by code
+  review and by the Phase 5/6 live runs.
