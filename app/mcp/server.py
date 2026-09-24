@@ -29,19 +29,36 @@ from app.workspace import Workspace
 mcp = FastMCP("codesage")
 
 
-async def _run_review(repo: str, diff: str, pr_number: int | None) -> dict:
+async def _run_review(repo: str, diff: str, pr_number: int | None, pr: dict | None = None) -> dict:
+    """Run the engine in report mode (no pausing, nothing posted, nothing saved).
+
+    With ``pr`` (PR metadata from GitHub) the agents read a temporary clone of the
+    PR head; otherwise they see the diff alone.
+    """
     settings = get_settings()
     tracker = CostTracker()
     client = LLMClient(settings, tracker)
-
     cfg = default_review_config(settings)
     # Semantic search opens its own sessions and degrades gracefully if the DB is
     # unreachable (returns no results rather than failing the review).
-    workspace = Workspace.diff_only(
-        prepare_diff(diff, cfg), semantic=pgvector_search(SessionFactory, repo)
-    )
-    graph = build_review_graph(make_deps(client, workspace, settings, cfg=cfg))
-    state = await graph.ainvoke({"repo": repo, "pr_number": pr_number, "diff": diff})
+    semantic = pgvector_search(SessionFactory, repo)
+    diff_model = prepare_diff(diff, cfg)
+    inputs = {"repo": repo, "pr_number": pr_number, "diff": diff}
+
+    if pr is not None:
+        ctx = {"number": pr["number"], "title": pr.get("title") or "",
+               "body": pr.get("body") or "", "base_sha": pr["base"]["sha"],
+               "head_sha": pr["head"]["sha"], "url": pr.get("html_url")}
+        async with Workspace.clone_at(
+            repo, ctx["head_sha"], diff_model, base_sha=ctx["base_sha"],
+            token=settings.github_token or None, semantic=semantic,
+        ) as workspace:
+            graph = build_review_graph(make_deps(client, workspace, settings, cfg=cfg))
+            state = await graph.ainvoke({**inputs, "pr": ctx})
+    else:
+        workspace = Workspace.diff_only(diff_model, semantic=semantic)
+        graph = build_review_graph(make_deps(client, workspace, settings, cfg=cfg))
+        state = await graph.ainvoke(inputs)
 
     return {
         "repo": repo,
@@ -78,8 +95,10 @@ async def review_github_pr(repo: str, pr_number: int) -> str:
         repo: Repository in owner/name form.
         pr_number: The pull request number.
     """
-    diff = await GitHubClient().fetch_pr_diff(repo, pr_number)
-    result = await _run_review(repo, diff, pr_number)
+    gh = GitHubClient()
+    pr = await gh.get_pr(repo, pr_number)
+    diff = await gh.fetch_pr_diff(repo, pr_number)
+    result = await _run_review(repo, diff, pr_number, pr)
     return json.dumps(result, indent=2)
 
 

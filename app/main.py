@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,10 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.api.routes import public_router, router
 from app.config import get_settings
+from app.db.session import SessionFactory
 from app.llm.client import LLMClient
 from app.logging_config import configure_logging, get_logger
 from app.realtime.broker import ReviewBroker
 from app.services.job_manager import JobManager
+from app.services.review_service import ReviewService
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -33,11 +35,41 @@ async def lifespan(app: FastAPI):
             "Sandboxed test execution is ENABLED: diff-supplied tests run with process-level "
             "isolation only. Use only with trusted input."
         )
-    # Real-time progress fan-out + background review runner, shared across requests.
-    app.state.broker = ReviewBroker()
-    app.state.job_manager = JobManager(app.state.broker)
-    yield
-    logger.info("CodeSage shutting down")
+    async with AsyncExitStack() as stack:
+        checkpointer = await _open_checkpointer(stack)
+        await _reconcile_interrupted()
+        # Real-time progress fan-out + background review runner, shared across requests.
+        app.state.broker = ReviewBroker()
+        app.state.job_manager = JobManager(app.state.broker, checkpointer)
+        yield
+        logger.info("CodeSage shutting down")
+
+
+async def _open_checkpointer(stack: AsyncExitStack):
+    """LangGraph's Postgres checkpointer: lets a review pause at the gate and resume
+    after a restart. Without it reviews still run, but the gate can't pause."""
+    try:
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+        saver = await stack.enter_async_context(
+            AsyncPostgresSaver.from_conn_string(settings.checkpoint_dsn)
+        )
+        await saver.setup()
+        logger.info("Checkpointer ready: the approval gate pauses reviews.")
+        return saver
+    except Exception as exc:  # noqa: BLE001 — degrade, don't refuse to start
+        logger.error("Checkpointer unavailable (%s); the approval gate will not pause.", exc)
+        return None
+
+
+async def _reconcile_interrupted() -> None:
+    try:
+        async with SessionFactory() as session:
+            n = await ReviewService(session).reconcile_interrupted()
+        if n:
+            logger.warning("Marked %d review(s) interrupted by the restart as failed.", n)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Could not reconcile interrupted reviews (%s).", exc)
 
 
 app = FastAPI(

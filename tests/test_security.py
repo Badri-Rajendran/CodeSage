@@ -88,7 +88,7 @@ def test_auth_can_be_disabled_explicitly(monkeypatch):
         ("get", "/api/v1/reviews/00000000-0000-0000-0000-000000000000"),
         ("get", "/api/v1/reviews/00000000-0000-0000-0000-000000000000/stream"),
         ("post", "/api/v1/reviews/async"),
-        ("post", "/api/v1/reviews/00000000-0000-0000-0000-000000000000/approve"),
+        ("post", "/api/v1/reviews/00000000-0000-0000-0000-000000000000/decision"),
         ("get", "/api/v1/telemetry"),
         ("post", "/api/v1/ingest"),
         ("get", "/api/v1/eval/runs"),

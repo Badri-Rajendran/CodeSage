@@ -42,14 +42,27 @@ class ReviewResponse(BaseModel):
     judge_score: float | None
     judge_rationale: str | None = None
     judge_dimensions: dict | None = None
+    # True while the review is paused at the gate (status == "awaiting_approval").
     requires_human_approval: bool
+    # Derived from `decision`: True approved, False rejected, None undecided.
     approved: bool | None = None
     traces: list[dict] | None = None
     telemetry: dict | None = None
-    # Persisted metadata (present on list/detail reads; null on a fresh sync result).
+    # running | awaiting_approval | completed | rejected | failed
     status: str | None = None
     model: str | None = None
     created_at: str | None = None
+    pr_title: str | None = None
+    head_sha: str | None = None
+    gate_tripped: bool = False
+    gate_reasons: list[str] = Field(default_factory=list)
+    budget_limited: bool = False
+    revision_count: int = 0
+    decision: str | None = None
+    decision_note: str | None = None
+    decided_at: str | None = None
+    github_review_url: str | None = None
+    error: str | None = None
 
 
 class ReviewJob(BaseModel):
@@ -62,8 +75,9 @@ class ReviewJob(BaseModel):
     stream_url: str
 
 
-class ApprovalRequest(BaseModel):
-    approved: bool = Field(..., description="Approve (true) or reject (false) the review.")
+class DecisionRequest(BaseModel):
+    approved: bool = Field(..., description="Approve (post to the PR) or reject the review.")
+    note: str | None = Field(None, max_length=2000, description="Optional operator note.")
 
 
 class EvalRunRequest(BaseModel):

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import require_api_key
 from app.api.schemas import (
-    ApprovalRequest,
+    DecisionRequest,
     EvalCompareRequest,
     EvalRunRequest,
     IngestRequest,
@@ -23,11 +23,17 @@ from app.api.schemas import (
     ReviewResponse,
 )
 from app.config import get_settings
-from app.db.session import get_session
+from app.db.session import SessionFactory, get_session
 from app.eval import store as eval_store
 from app.github.client import GitHubClient
 from app.rag.pipeline import IngestPathError, ingest_path, resolve_ingest_root
-from app.services.review_service import ReviewService
+from app.realtime.broker import END_OF_STREAM
+from app.services.review_service import (
+    ReviewConflict,
+    ReviewNotFound,
+    ReviewService,
+    parse_review_id,
+)
 
 # Every route on `router` requires an API key; `public_router` is unauthenticated
 # and must only expose non-sensitive service metadata.
@@ -77,49 +83,75 @@ async def create_review_async(
 
     Subscribe to ``GET /api/v1/reviews/{id}/stream`` to watch the agents work in
     real time, then ``GET /api/v1/reviews/{id}`` for the persisted result.
+
+    Given only a PR number (no diff), the review runs in PR mode: agents read a
+    clone of the PR head, and the review is posted to the PR when the gate passes
+    or a human approves it. Given a diff, nothing is posted.
     """
     diff = await _resolve_diff(body)
     service = ReviewService(session)
     review_id = await service.create_running(repo=body.repo, pr_number=body.pr_number)
 
     request.app.state.job_manager.submit(
-        review_id, repo=body.repo, pr_number=body.pr_number, diff=diff
+        review_id, repo=body.repo, pr_number=body.pr_number, diff=diff,
+        pr_mode=body.diff is None and body.pr_number is not None,
     )
-    rid = str(review_id)
-    return ReviewJob(
-        id=rid,
-        repo=body.repo,
-        pr_number=body.pr_number,
-        status="running",
-        stream_url=f"/api/v1/reviews/{rid}/stream",
-    )
+    return _job(str(review_id), body.repo, body.pr_number)
+
+
+def _job(rid: str, repo: str, pr_number: int | None) -> ReviewJob:
+    return ReviewJob(id=rid, repo=repo, pr_number=pr_number, status="running",
+                     stream_url=f"/api/v1/reviews/{rid}/stream")
+
+
+def _final_event(review: dict) -> dict:
+    """The event a finished or paused review's stream ends with, rebuilt from the DB."""
+    rid, status = review["id"], review["status"]
+    if status == "failed":
+        return {"type": "review.failed", "review_id": rid,
+                "error": review.get("error") or "review failed"}
+    if status == "awaiting_approval":
+        return {"type": "review.awaiting_approval", "review_id": rid,
+                "gate_reasons": review["gate_reasons"], "judge_score": review["judge_score"],
+                "review": review}
+    return {"type": "review.completed", "review_id": rid, "review": review}
 
 
 @router.get("/reviews/{review_id}/stream")
 async def stream_review(review_id: str, request: Request) -> StreamingResponse:
-    """Server-Sent Events stream of a review's progress."""
+    """Server-Sent Events stream of a review's progress.
+
+    Unknown reviews get 404. A review that already finished (or is waiting for
+    approval) and is no longer in the in-memory broker, for example after a
+    restart, gets its final state from the database, then the stream closes.
+    """
     broker = request.app.state.broker
+    async with SessionFactory() as session:
+        review = await ReviewService(session).get_review(review_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="Review not found.")
+    replay_from_db = not broker.has_history(review["id"]) and review["status"] != "running"
 
     async def event_source() -> AsyncIterator[bytes]:
-        queue = await broker.subscribe(review_id)
-        # Prompt clients to retry after 3s if the connection drops.
-        yield b"retry: 3000\n\n"
+        yield b"retry: 3000\n\n"  # prompt clients to retry after 3s if the connection drops
+        if replay_from_db:
+            yield _frame(_final_event(review))
+            return
+        queue = await broker.subscribe(review["id"])
         try:
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=15.0)
                 except TimeoutError:
                     yield b": keep-alive\n\n"  # comment frame keeps proxies happy
-                    if broker.is_done(review_id):
+                    if broker.is_done(review["id"]):
                         break
                     continue
-                payload = json.dumps(event)
-                frame = f"event: {event['type']}\ndata: {payload}\n\n"
-                yield frame.encode()
-                if event.get("type") in ("review.completed", "review.failed"):
+                yield _frame(event)
+                if event.get("type") in END_OF_STREAM:
                     break
         finally:
-            broker.unsubscribe(review_id, queue)
+            broker.unsubscribe(review["id"], queue)
 
     return StreamingResponse(
         event_source(),
@@ -130,6 +162,10 @@ async def stream_review(review_id: str, request: Request) -> StreamingResponse:
             "X-Accel-Buffering": "no",  # disable nginx buffering for SSE
         },
     )
+
+
+def _frame(event: dict) -> bytes:
+    return f"event: {event['type']}\ndata: {json.dumps(event)}\n\n".encode()
 
 
 @router.get("/reviews", response_model=list[ReviewResponse])
@@ -155,18 +191,29 @@ async def get_review(
     return ReviewResponse(**result)
 
 
-@router.post("/reviews/{review_id}/approve", response_model=ReviewResponse)
-async def approve_review(
+@router.post("/reviews/{review_id}/decision", response_model=ReviewJob, status_code=202)
+async def decide_review(
     review_id: str,
-    body: ApprovalRequest,
+    body: DecisionRequest,
+    request: Request,
     session: AsyncSession = Depends(get_session),
-) -> ReviewResponse:
-    """Human-in-the-loop gate: approve or reject a review that requires sign-off."""
+) -> ReviewJob:
+    """Human-in-the-loop gate: approve (post to the PR) or reject a paused review.
+
+    409 unless the review is awaiting approval. The review then resumes in the
+    background; follow it on the same stream URL.
+    """
     service = ReviewService(session)
-    result = await service.approve_review(review_id, body.approved)
-    if result is None:
-        raise HTTPException(status_code=404, detail="Review not found.")
-    return ReviewResponse(**result)
+    try:
+        review = await service.decide(review_id, approved=body.approved, note=body.note)
+    except ReviewNotFound as exc:
+        raise HTTPException(status_code=404, detail="Review not found.") from exc
+    except ReviewConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    request.app.state.job_manager.submit_resume(
+        parse_review_id(review["id"]), approved=body.approved, note=body.note
+    )
+    return _job(review["id"], review["repo"], review["pr_number"])
 
 
 @public_router.get("/meta")
