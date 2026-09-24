@@ -23,10 +23,17 @@ class Settings(BaseSettings):
 
     # ── Claude API ────────────────────────────────────────────────────────────
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
-    model: str = Field(default="claude-opus-4-8", alias="CODESAGE_MODEL")
-    judge_model: str = Field(default="claude-opus-4-8", alias="CODESAGE_JUDGE_MODEL")
+    # Reviewers and reflection use `model`; the judge is a different, stronger model
+    # so it isn't grading its own work. `.codesage.yml` can override all of these.
+    model: str = Field(default="claude-sonnet-5", alias="CODESAGE_MODEL")
+    judge_model: str = Field(default="claude-opus-5", alias="CODESAGE_JUDGE_MODEL")
+    reviewer_effort: str = Field(default="medium", alias="CODESAGE_REVIEWER_EFFORT")
+    judge_effort: str = Field(default="high", alias="CODESAGE_JUDGE_EFFORT")
+    # Effort for LLMClient.structured() calls (legacy single-call path).
     effort: str = Field(default="high", alias="CODESAGE_EFFORT")
     max_tokens: int = Field(default=8000, alias="CODESAGE_MAX_TOKENS")
+    # Hard cap on model spend per review (USD).
+    budget_usd: float = Field(default=0.50, alias="CODESAGE_BUDGET_USD")
 
     # ── Embeddings ────────────────────────────────────────────────────────────
     voyage_api_key: str = Field(default="", alias="VOYAGE_API_KEY")
@@ -38,6 +45,8 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://codesage:codesage@db:5432/codesage",
         alias="DATABASE_URL",
     )
+    # LangGraph checkpointer (psycopg v3). Empty = derived from DATABASE_URL.
+    checkpoint_dsn_override: str = Field(default="", alias="CODESAGE_CHECKPOINT_DSN")
 
     # ── GitHub ────────────────────────────────────────────────────────────────
     github_token: str = Field(default="", alias="GITHUB_TOKEN")
@@ -84,6 +93,11 @@ class Settings(BaseSettings):
     def has_llm(self) -> bool:
         """Whether a real Claude key is configured (otherwise we degrade to a stub)."""
         return bool(self.anthropic_api_key)
+
+    @property
+    def checkpoint_dsn(self) -> str:
+        """psycopg DSN for the HITL checkpointer (the app itself uses asyncpg)."""
+        return self.checkpoint_dsn_override or self.database_url.replace("+asyncpg", "", 1)
 
     @property
     def has_embeddings_api(self) -> bool:
