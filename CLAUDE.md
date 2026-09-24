@@ -67,4 +67,3 @@ With no `ANTHROPIC_API_KEY`, `LLMClient` (`app/llm/client.py`) routes every call
 - `pytest` uses `asyncio_mode = "auto"` — write async tests as plain `async def`.
 - Adding a reviewer: subclass `ReviewerAgent` (set `name`/`component`/`system`/`focus_query_template`), register it in `graph.py`, add a stub branch in `stub.py`, and update the stage maps above.
 - Commit messages: conventional, present tense (`add`, `fix`, `refactor`).
-- Deployment target is a DigitalOcean droplet via `deploy/deploy.sh` (doctl + cloud-init + Caddy, `deploy/docker-compose.prod.yml`); AWS is documented only.

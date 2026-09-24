@@ -4,7 +4,7 @@
 > team would — reasoning, reflecting, and citing context from the codebase before
 > it comments.
 
-[![CI](https://github.com/badrinarayanan/CodeSage/actions/workflows/ci.yml/badge.svg)](https://github.com/badrinarayanan/CodeSage/actions/workflows/ci.yml)
+[![CI](https://github.com/Badri-Rajendran/CodeSage/actions/workflows/ci.yml/badge.svg)](https://github.com/Badri-Rajendran/CodeSage/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -41,7 +41,8 @@ exposed over both a **REST API**, an **MCP server**, and a **real-time web conso
 | Token-cost telemetry | [`app/llm/telemetry.py`](app/llm/telemetry.py) |
 | REST API (FastAPI) | [`app/api/`](app/api) |
 | MCP server | [`app/mcp/server.py`](app/mcp/server.py) |
-| Containerized + deployable (Docker / DigitalOcean / AWS) | [`Dockerfile`](Dockerfile), [`deploy/`](deploy) |
+| GitHub Action (reviews, inline comments, check run) | [`action.yml`](action.yml), [`app/action/`](app/action) |
+| Local stack in Docker | [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml) |
 | Real-time web console (React + Vite + SSE) | [`web/`](web) |
 
 ## Workflow & use-cases
@@ -124,7 +125,7 @@ codesage-action review --event event.json --event-name pull_request \
 ## Quick start (local, Docker)
 
 ```bash
-git clone https://github.com/badrinarayanan/CodeSage.git
+git clone https://github.com/Badri-Rajendran/CodeSage.git
 cd CodeSage
 cp .env.example .env          # add your ANTHROPIC_API_KEY and a CODESAGE_API_KEYS value
 docker compose up --build
@@ -297,11 +298,6 @@ python -m app.mcp.server      # stdio MCP server exposing review_pull_request
 Point any MCP-compatible client (Claude Desktop, etc.) at it to call CodeSage's
 review tools directly.
 
-## Deployment
-
-See [`deploy/README.md`](deploy/README.md) for the DigitalOcean droplet path
-(one `deploy.sh` invocation) and notes on the AWS (ECS/Lambda) story.
-
 ## Configuration
 
 All settings are environment-driven; see [`.env.example`](.env.example).
@@ -318,7 +314,7 @@ All settings are environment-driven; see [`.env.example`](.env.example).
 | `CODESAGE_API_KEYS` | — | Comma-separated API keys (**required**; the API fails closed without one) |
 | `CODESAGE_AUTH_DISABLED` | `false` | Skip auth entirely — local development only |
 | `CODESAGE_INGEST_ROOTS` | — (compose: `/app`) | Directories `POST /ingest` may read; empty disables API ingest |
-| `CODESAGE_SANDBOX_ENABLED` | `false` | Run diff-supplied tests (process isolation only; forced off in prod) |
+| `CODESAGE_SANDBOX_ENABLED` | `false` | Run diff-supplied tests (process isolation only) |
 | `CODESAGE_CORS_ORIGINS` | — | Allowed cross-origin callers; empty allows none |
 
 ## Security
@@ -330,18 +326,15 @@ All settings are environment-driven; see [`.env.example`](.env.example).
   review progress with `fetch` so the key never appears in a URL.
 - **Sandbox.** Executing tests from a diff uses process-level isolation only —
   tests run as the API user with its network and filesystem access. It is off by
-  default and forced off by `deploy/docker-compose.prod.yml`; enable it only for
-  trusted input. Timeouts kill the whole process group.
+  default; enable it only for trusted input. Timeouts kill the whole process group.
 - **Ingestion** over the API is limited to `CODESAGE_INGEST_ROOTS` (symlinks and
   `..` are resolved first). Eval runs over the API only read datasets in
   `eval/datasets/`, and GitHub repo names are validated before the token is used.
-- **Deploy.** `deploy/deploy.sh` refuses to ship without `CODESAGE_API_KEYS` or
-  with `CODESAGE_AUTH_DISABLED` set.
 
 ## Tech stack
 
 Python · FastAPI · LangGraph · LangChain · Claude API · pgvector · PostgreSQL ·
-MCP · Docker · DigitalOcean / AWS
+MCP · Docker · GitHub Actions
 
 ## License
 

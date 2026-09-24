@@ -1,8 +1,8 @@
 """Central, environment-driven configuration.
 
-Everything CodeSage needs to run is expressed as a setting here so the same
-image runs unchanged across local Docker, a DigitalOcean droplet, or AWS
-(ECS/Lambda) — only the environment differs.
+Everything CodeSage needs to run is expressed as a setting here, so the GitHub
+Action, the local API/console and the MCP server share one engine and only the
+environment differs.
 """
 
 from __future__ import annotations

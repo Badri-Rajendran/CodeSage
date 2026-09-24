@@ -34,7 +34,6 @@ make typecheck   # mypy
 | `app/eval/` | LLM-as-Judge harness + regression detection |
 | `app/llm/` | Claude client, telemetry, prompts, offline stub |
 | `app/api/`, `app/mcp/` | REST and MCP surfaces |
-| `deploy/` | DigitalOcean provisioning + production compose |
 
 ## Adding a reviewer
 
