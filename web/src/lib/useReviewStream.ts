@@ -29,9 +29,12 @@ export interface LiveReview {
   judgeDimensions?: Record<string, number>;
   judgeRationale?: string;
   requiresHumanApproval?: boolean;
+  gateReasons?: string[];
+  githubReviewUrl?: string | null;
   telemetry?: Telemetry;
   result?: Review;
-  status: "idle" | "streaming" | "completed" | "failed";
+  // "awaiting": paused at the approval gate; the stream closes until a decision.
+  status: "idle" | "streaming" | "awaiting" | "completed" | "failed";
   error?: string;
   log: { ts: number; label: string; tone: "info" | "ok" | "warn" | "err" }[];
 }
@@ -150,7 +153,7 @@ export function useReviewStream() {
   return { live, start, reset };
 }
 
-const TERMINAL = new Set(["review.completed", "review.failed"]);
+const TERMINAL = new Set(["review.completed", "review.failed", "review.awaiting_approval"]);
 const MAX_ATTEMPTS = 5;
 const RETRY_MS = 3000;
 
@@ -279,6 +282,8 @@ function reduce(prev: LiveReview, ev: ReviewEvent): LiveReview {
         judgeRationale: ev.judge_rationale ?? prev.judgeRationale,
         requiresHumanApproval:
           ev.requires_human_approval ?? prev.requiresHumanApproval,
+        gateReasons: ev.gate_reasons ?? prev.gateReasons,
+        githubReviewUrl: ev.github_review_url ?? prev.githubReviewUrl,
         log: [
           {
             ts: Date.now(),
@@ -299,8 +304,34 @@ function reduce(prev: LiveReview, ev: ReviewEvent): LiveReview {
         summary: ev.review.summary ?? prev.summary,
         judgeScore: ev.review.judge_score ?? prev.judgeScore,
         requiresHumanApproval: ev.review.requires_human_approval,
+        gateReasons: ev.review.gate_reasons ?? prev.gateReasons,
+        githubReviewUrl: ev.review.github_review_url ?? prev.githubReviewUrl,
         telemetry: ev.review.telemetry ?? prev.telemetry,
-        log: [{ ts: Date.now(), label: "Review complete", tone: "ok" }, ...log],
+        log: [
+          {
+            ts: Date.now(),
+            label:
+              ev.review.status === "rejected"
+                ? "Review rejected: nothing posted"
+                : ev.review.github_review_url
+                  ? "Review complete and posted to the PR"
+                  : "Review complete",
+            tone: ev.review.status === "rejected" ? "warn" : "ok",
+          },
+          ...log,
+        ],
+      };
+    case "review.awaiting_approval":
+      return {
+        ...prev,
+        status: "awaiting",
+        result: ev.review,
+        summary: ev.review.summary ?? prev.summary,
+        judgeScore: ev.review.judge_score ?? prev.judgeScore,
+        requiresHumanApproval: true,
+        gateReasons: ev.gate_reasons,
+        telemetry: ev.review.telemetry ?? prev.telemetry,
+        log: [{ ts: Date.now(), label: "Paused: waiting for your decision", tone: "warn" }, ...log],
       };
     case "review.failed":
       return {

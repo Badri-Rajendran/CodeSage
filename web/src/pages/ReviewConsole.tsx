@@ -19,7 +19,8 @@ import { StageTimeline } from "../components/StageTimeline";
 import { FindingCard } from "../components/FindingCard";
 import { JudgePanel } from "../components/JudgePanel";
 import { TraceView } from "../components/TraceView";
-import type { Finding } from "../lib/types";
+import type { Finding, Review } from "../lib/types";
+import { DecisionPanel } from "../components/DecisionPanel";
 
 const SAMPLES: { label: string; repo: string; diff: string }[] = [
   {
@@ -52,14 +53,12 @@ export function ReviewConsole() {
   const [diff, setDiff] = useState(SAMPLES[0].diff);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [approving, setApproving] = useState(false);
-  const [approved, setApproved] = useState<boolean | null>(null);
+  const [deciding, setDeciding] = useState(false);
 
   const busy = submitting || live.status === "streaming";
 
   async function run() {
     setError(null);
-    setApproved(null);
     setSubmitting(true);
     try {
       const job = await api.startReview({
@@ -75,19 +74,21 @@ export function ReviewConsole() {
     }
   }
 
-  async function decide(ok: boolean) {
+  async function decide(ok: boolean, note: string) {
     if (!live.result) return;
-    setApproving(true);
+    setDeciding(true);
     try {
-      await api.approve(live.result.id, ok);
-      setApproved(ok);
+      await api.decide(live.result.id, ok, note);
+      // The review resumes on the same stream: reconnect and replay it.
+      start(live.result.id);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
-      setApproving(false);
+      setDeciding(false);
     }
   }
 
+  const done = live.status === "completed" || live.status === "awaiting";
   const findings: Finding[] = live.result?.findings ?? [];
   const sortedFindings = useMemo(
     () =>
@@ -126,13 +127,20 @@ export function ReviewConsole() {
             />
           ) : (
             <>
-              {live.requiresHumanApproval && live.status === "completed" && (
-                <ApprovalBanner
-                  approving={approving}
-                  approved={approved}
+              {live.status === "awaiting" && (
+                <DecisionPanel
+                  reasons={live.gateReasons ?? []}
+                  busy={deciding}
+                  canPost={live.result?.head_sha != null}
                   onDecide={decide}
                 />
               )}
+              {error && (
+                <Card className="border-rose-500/30 bg-rose-500/5 p-3 text-sm text-rose-400">
+                  {error}
+                </Card>
+              )}
+              {live.status === "completed" && <OutcomeBanner review={live.result} />}
               {live.status === "failed" && (
                 <Card className="border-rose-500/30 bg-rose-500/5 p-4 text-sm text-rose-400">
                   <p className="flex items-center gap-2 font-medium">
@@ -142,7 +150,7 @@ export function ReviewConsole() {
                 </Card>
               )}
 
-              {(live.judgeScore != null || live.status === "completed") && (
+              {(live.judgeScore != null || done) && (
                 <JudgePanel
                   score={live.judgeScore}
                   dimensions={live.judgeDimensions}
@@ -154,14 +162,14 @@ export function ReviewConsole() {
                 <CardHeader
                   title="Findings"
                   subtitle={
-                    live.status === "completed"
+                    done
                       ? `${findings.length} issue${findings.length === 1 ? "" : "s"} after reflection`
                       : "Consolidating after reviewers finish…"
                   }
                   icon={<Sparkles className="h-4 w-4" />}
                 />
                 <div className="space-y-2.5 p-5">
-                  {live.status !== "completed" ? (
+                  {!done ? (
                     <FindingsSkeleton />
                   ) : sortedFindings.length ? (
                     sortedFindings.map((f, i) => <FindingCard key={i} finding={f} />)
@@ -170,7 +178,7 @@ export function ReviewConsole() {
                       The reviewers and reflection agent surfaced nothing actionable.
                     </EmptyState>
                   )}
-                  {live.summary && live.status === "completed" && (
+                  {live.summary && done && (
                     <div className="mt-3 rounded-lg border border-line bg-surface p-3 text-sm">
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
                         Reflection summary
@@ -371,61 +379,32 @@ function SubmitForm({
   );
 }
 
-function ApprovalBanner({
-  approving,
-  approved,
-  onDecide,
-}: {
-  approving: boolean;
-  approved: boolean | null;
-  onDecide: (ok: boolean) => void;
-}) {
-  if (approved !== null) {
+function OutcomeBanner({ review }: { review?: Review }) {
+  if (!review) return null;
+  if (review.status === "rejected") {
     return (
-      <Card
-        className={`p-4 ${
-          approved
-            ? "border-emerald-500/30 bg-emerald-500/5"
-            : "border-rose-500/30 bg-rose-500/5"
-        }`}
-      >
-        <p
-          className={`flex items-center gap-2 text-sm font-medium ${
-            approved ? "text-emerald-500" : "text-rose-400"
-          }`}
-        >
-          {approved ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
-          Review {approved ? "approved" : "rejected"}.
+      <Card className="border-rose-500/30 bg-rose-500/5 p-4">
+        <p className="flex items-center gap-2 text-sm font-medium text-rose-400">
+          <X className="h-4 w-4" /> Rejected: nothing was posted.
         </p>
       </Card>
     );
   }
-  return (
-    <Card className="border-amber-500/30 bg-amber-500/5 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="flex items-center gap-2 text-sm font-medium text-amber-500">
-          <AlertTriangle className="h-4 w-4" />
-          Human-in-the-loop gate tripped — this review needs sign-off.
+  if (review.github_review_url) {
+    return (
+      <Card className="border-emerald-500/30 bg-emerald-500/5 p-4">
+        <p className="flex items-center gap-2 text-sm font-medium text-emerald-500">
+          <Check className="h-4 w-4" />
+          {review.decision === "approved" ? "Approved and posted" : "Passed the gate and posted"}{" "}
+          to the pull request.
+          <a href={review.github_review_url} target="_blank" rel="noreferrer" className="underline">
+            View on GitHub
+          </a>
         </p>
-        <div className="flex gap-2">
-          <button
-            onClick={() => onDecide(false)}
-            disabled={approving}
-            className="btn-ghost"
-          >
-            <X className="h-4 w-4" /> Reject
-          </button>
-          <button
-            onClick={() => onDecide(true)}
-            disabled={approving}
-            className="btn-primary"
-          >
-            {approving ? <Spinner /> : <Check className="h-4 w-4" />} Approve
-          </button>
-        </div>
-      </div>
-    </Card>
-  );
+      </Card>
+    );
+  }
+  return null;
 }
 
 function FindingsSkeleton() {

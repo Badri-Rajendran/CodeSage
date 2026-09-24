@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, ShieldCheck, X } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import type { Finding, Review } from "../lib/types";
 import { fmtScore, scoreTone, shortId, timeAgo } from "../lib/format";
 import { Card, CardHeader, EmptyState, PageHeader, Spinner } from "../components/ui";
 import { SeverityBadge } from "../components/FindingCard";
+import { DecisionPanel } from "../components/DecisionPanel";
 
 export function ApprovalQueue() {
   const [reviews, setReviews] = useState<Review[] | null>(null);
@@ -15,7 +16,7 @@ export function ApprovalQueue() {
   async function load() {
     try {
       const all = await api.listReviews(200);
-      setReviews(all.filter((r) => r.requires_human_approval && r.status !== "running"));
+      setReviews(all.filter((r) => r.status === "awaiting_approval"));
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -28,10 +29,10 @@ export function ApprovalQueue() {
     return () => clearInterval(t);
   }, []);
 
-  async function decide(id: string, ok: boolean) {
+  async function decide(id: string, ok: boolean, note: string) {
     setBusyId(id);
     try {
-      await api.approve(id, ok);
+      await api.decide(id, ok, note);
       setReviews((prev) => (prev ?? []).filter((r) => r.id !== id));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -44,7 +45,7 @@ export function ApprovalQueue() {
     <div>
       <PageHeader
         title="Approval Queue"
-        subtitle="Reviews that tripped the human-in-the-loop gate and await sign-off."
+        subtitle="Reviews paused at the approval gate. Approve posts the review to its PR; reject posts nothing."
       />
       {error && (
         <Card className="mb-4 border-rose-500/30 bg-rose-500/5 p-3 text-sm text-rose-400">
@@ -69,7 +70,7 @@ export function ApprovalQueue() {
               key={r.id}
               review={r}
               busy={busyId === r.id}
-              onDecide={(ok) => decide(r.id, ok)}
+              onDecide={(ok, note) => decide(r.id, ok, note)}
             />
           ))}
         </div>
@@ -85,7 +86,7 @@ function QueueCard({
 }: {
   review: Review;
   busy: boolean;
-  onDecide: (ok: boolean) => void;
+  onDecide: (ok: boolean, note: string) => void;
 }) {
   const top: Finding[] = [...review.findings]
     .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
@@ -121,14 +122,13 @@ function QueueCard({
             </div>
           ))}
         </div>
-        <div className="flex justify-end gap-2 pt-1">
-          <button onClick={() => onDecide(false)} disabled={busy} className="btn-ghost">
-            <X className="h-4 w-4" /> Reject
-          </button>
-          <button onClick={() => onDecide(true)} disabled={busy} className="btn-primary">
-            {busy ? <Spinner /> : <Check className="h-4 w-4" />} Approve
-          </button>
-        </div>
+        <DecisionPanel
+          compact
+          reasons={review.gate_reasons ?? []}
+          busy={busy}
+          canPost={review.head_sha != null}
+          onDecide={onDecide}
+        />
       </div>
     </Card>
   );

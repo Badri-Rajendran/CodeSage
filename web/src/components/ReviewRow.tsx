@@ -3,45 +3,45 @@ import { AlertTriangle, Check, CircleDashed, Clock, X } from "lucide-react";
 import type { Review } from "../lib/types";
 import { fmtScore, scoreTone, severityClasses, shortId, timeAgo } from "../lib/format";
 
-function StatusChip({ review }: { review: Review }) {
-  if (review.status === "running") {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-brand-400">
-        <CircleDashed className="h-3.5 w-3.5 animate-spin" /> Running
-      </span>
-    );
+const CHIP = "inline-flex items-center gap-1 text-xs font-medium";
+
+export function StatusChip({ review }: { review: Review }) {
+  switch (review.status) {
+    case "running":
+      return (
+        <span className={`${CHIP} text-brand-400`}>
+          <CircleDashed className="h-3.5 w-3.5 animate-spin" /> Running
+        </span>
+      );
+    case "awaiting_approval":
+      return (
+        <span className={`${CHIP} text-amber-500`}>
+          <AlertTriangle className="h-3.5 w-3.5" /> Awaiting approval
+        </span>
+      );
+    case "failed":
+      return (
+        <span className={`${CHIP} text-rose-400`}>
+          <X className="h-3.5 w-3.5" /> Failed
+        </span>
+      );
+    case "rejected":
+      return (
+        <span className={`${CHIP} text-rose-400`}>
+          <X className="h-3.5 w-3.5" /> Rejected
+        </span>
+      );
   }
-  if (review.status === "failed") {
+  if (review.decision === "approved") {
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-rose-400">
-        <X className="h-3.5 w-3.5" /> Failed
-      </span>
-    );
-  }
-  if (review.approved === true) {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-500">
-        <Check className="h-3.5 w-3.5" /> Approved
-      </span>
-    );
-  }
-  if (review.approved === false) {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-rose-400">
-        <X className="h-3.5 w-3.5" /> Rejected
-      </span>
-    );
-  }
-  if (review.requires_human_approval) {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-500">
-        <AlertTriangle className="h-3.5 w-3.5" /> Needs review
+      <span className={`${CHIP} text-emerald-500`}>
+        <Check className="h-3.5 w-3.5" /> Approved{review.github_review_url ? " · posted" : ""}
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-xs font-medium text-ink-faint">
-      <Check className="h-3.5 w-3.5" /> Auto-approved
+    <span className={`${CHIP} text-ink-faint`}>
+      <Check className="h-3.5 w-3.5" /> Passed{review.github_review_url ? " · posted" : ""}
     </span>
   );
 }

@@ -69,10 +69,11 @@ export const api = {
 
   getReview: (id: string) => http<Review>(`/reviews/${id}`),
 
-  approve: (id: string, approved: boolean) =>
-    http<Review>(`/reviews/${id}/approve`, {
+  /** Approve (posts to the PR) or reject a review paused at the gate; it then resumes. */
+  decide: (id: string, approved: boolean, note?: string) =>
+    http<ReviewJob>(`/reviews/${id}/decision`, {
       method: "POST",
-      body: JSON.stringify({ approved }),
+      body: JSON.stringify({ approved, note: note?.trim() || null }),
     }),
 
   telemetry: () => http<TelemetrySummary>("/telemetry"),
