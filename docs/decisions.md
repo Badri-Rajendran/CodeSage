@@ -185,3 +185,28 @@ secret was added: free, and exercising every trigger and the full publishing pat
 | Non-collaborator comment | Not run live (it needs a second account); covered by `rules.evaluate` and the workflow's job-level `if` |
 
 Paid runs, to judge review quality with real models, follow once the secret is set.
+
+## Phase 6 verification (2026-09-24/25)
+
+This ran on a local API against a throwaway pgvector container on port 5544, in stub mode (free).
+
+- **Diff mode:**
+  - A gate-tripping review paused in `awaiting_approval`, with its gate reasons. It was
+    still paused after an API restart.
+  - A row forced into `running` became `failed` ("interrupted by restart").
+  - Reject gave `rejected`, with the note, and posted nothing.
+  - Approve after the restart resumed from the checkpoint and completed.
+  - A second decision got 409. Five concurrent decisions gave exactly one 202 and four 409s.
+- **SSE:** a random or malformed id got 404. Finished and paused reviews that were no
+  longer in the broker got their final event from the DB, and the stream closed.
+- **Browser (Playwright):**
+  - The console paused with a decision panel.
+  - Approving resumed the review on the same stream.
+  - The Approval Queue note and Review Detail (status, gate reasons, decision + note,
+    judge dimensions) rendered.
+- **PR mode on the private test repo**, using a token from `gh auth token` in that process only:
+  - The blobless clone at the PR head succeeded.
+  - PR #1 (planted bug) paused; approving it posted the review.
+  - PR #2 (clean) posted automatically.
+  - Posting the same review id again returned the existing review, so exactly one
+    review carries the marker.
