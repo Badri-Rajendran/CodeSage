@@ -94,6 +94,11 @@ against the live API. The spike code lives in the session scratchpad, **not** in
 - The same run with `budget_usd: 0.02` reports `budget_limited` and still returns structured findings.
 - A low-quality planted review is judged below 0.6 and gets exactly one `revise` round.
 
+**Outstanding:** the live `revise` round hasn't been run. The owner skipped that paid run in
+Phase 4. It's covered by code review and the stub-mode graph, and can be exercised by setting
+`gate: {threshold: 0.99}` in a test repo's `.codesage.yml`. The other checks are covered by the
+Phase 4 budget run and the Phase 5 paid runs (see decisions.md).
+
 ### Phase 5: GitHub Action ✅ done
 
 **Changes:**
