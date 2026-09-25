@@ -1,10 +1,9 @@
 """ReAct scaffolding.
 
-A reviewer follows a Reason → Act → Observe loop before synthesizing findings:
-it reasons about what context it needs, *acts* by calling tools (RAG retrieval,
-sandboxed tests), observes the results, then reasons over the accumulated
-observations to produce findings. Every step is recorded as a `ReactStep` so the
-trajectory is auditable in the review output.
+An agent's trajectory as Reason → Act → Observe steps: its reasoning text, the
+tools it called (read files, search code, run tests, ...) and what they
+returned. ``TraceMiddleware`` (``app.agents.middleware``) records a live agent's
+loop into this shape; the console renders it.
 """
 
 from __future__ import annotations

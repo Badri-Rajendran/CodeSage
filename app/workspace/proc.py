@@ -1,5 +1,7 @@
 """Run a subprocess with a hard timeout that kills its whole process group.
 
+Used by the ``run_tests`` agent tool and by the workspace's git commands.
+
 The child starts in a new session (its own process group), so on timeout
 ``killpg`` also takes down anything it forked; tests that spawn servers or
 sleep cannot outlive the caller.

@@ -14,7 +14,6 @@ os.environ.setdefault("VOYAGE_API_KEY", "")
 os.environ.setdefault(
     "DATABASE_URL", "postgresql+asyncpg://codesage:codesage@localhost:5432/codesage_test"
 )
-os.environ.setdefault("CODESAGE_SANDBOX_ENABLED", "true")
 os.environ["CODESAGE_API_KEYS"] = "test-key"
 os.environ["CODESAGE_AUTH_DISABLED"] = "false"
 

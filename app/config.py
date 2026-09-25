@@ -52,10 +52,6 @@ class Settings(BaseSettings):
     # ── Behavior ──────────────────────────────────────────────────────────────
     hitl_threshold: float = Field(default=0.6, alias="CODESAGE_HITL_THRESHOLD")
     rag_top_k: int = Field(default=6, alias="CODESAGE_RAG_TOP_K")
-    # Off by default: the sandbox runs diff-supplied code with process-level
-    # isolation only, so enable it solely for trusted input.
-    sandbox_enabled: bool = Field(default=False, alias="CODESAGE_SANDBOX_ENABLED")
-    sandbox_timeout_s: int = Field(default=30, alias="CODESAGE_SANDBOX_TIMEOUT_S")
 
     # ── Security ──────────────────────────────────────────────────────────────
     # Comma-separated API keys accepted on /api/v1 (Bearer or X-API-Key). With no

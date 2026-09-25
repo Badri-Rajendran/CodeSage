@@ -30,11 +30,6 @@ async def lifespan(app: FastAPI):
         logger.warning("API authentication is DISABLED (CODESAGE_AUTH_DISABLED); local dev only.")
     elif not settings.api_key_list:
         logger.error("No CODESAGE_API_KEYS configured — all /api/v1 routes will return 503.")
-    if settings.sandbox_enabled:
-        logger.warning(
-            "Sandboxed test execution is ENABLED: diff-supplied tests run with process-level "
-            "isolation only. Use only with trusted input."
-        )
     async with AsyncExitStack() as stack:
         checkpointer = await _open_checkpointer(stack)
         await _reconcile_interrupted()

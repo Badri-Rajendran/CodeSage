@@ -1,5 +1,5 @@
 """Tests for the API lockdown: auth, ingest roots, dataset paths, repo validation,
-sandbox defaults/timeouts, and stderr-only logging."""
+test-execution defaults/timeouts, and stderr-only logging."""
 
 from __future__ import annotations
 
@@ -12,14 +12,15 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from app.agents.sandbox import Sandbox
 from app.config import Settings, get_settings
+from app.diff import Diff
 from app.eval.store import resolve_dataset
 from app.github.client import GitHubClient, validate_repo
 from app.logging_config import configure_logging
 from app.main import app
 from app.rag import pipeline
 from app.rag.pipeline import IngestPathError, resolve_ingest_root
+from app.workspace import TestSpec, Workspace
 from tests.conftest import API_KEY
 
 client = TestClient(app)
@@ -229,10 +230,10 @@ def test_review_route_rejects_bad_repo_for_github_fetch():
     assert resp.status_code == 422
 
 
-# ── Sandbox ────────────────────────────────────────────────────────────────────
-def test_sandbox_disabled_by_default(monkeypatch):
-    monkeypatch.delenv("CODESAGE_SANDBOX_ENABLED", raising=False)
-    assert Settings(_env_file=None).sandbox_enabled is False
+# ── Test execution (run_tests tool) ────────────────────────────────────────────
+def test_sandbox_disabled_by_default(tmp_path):
+    # Repo code only runs when a test command is configured (.codesage.yml tests:).
+    assert "run_tests" not in {t.name for t in Workspace(tmp_path, Diff()).tools_for("correctness")}
 
 
 def _alive(pid: int) -> bool:
@@ -253,17 +254,14 @@ async def test_sandbox_timeout_kills_the_whole_process_group(tmp_path):
         f"    open({str(pids)!r}, 'w').write(f'{{os.getpid()}} {{child.pid}}')\n"
         "    time.sleep(60)\n"
     )
-    diff = "--- /dev/null\n+++ b/test_hang.py\n@@ -0,0 +1,5 @@\n" + "".join(
-        f"+{line}\n" for line in test_src.splitlines()
-    )
-    settings = get_settings().model_copy(
-        update={"sandbox_enabled": True, "sandbox_timeout_s": 2}
-    )
+    (tmp_path / "test_hang.py").write_text(test_src)
+    command = f"{sys.executable} -m pytest -q -p no:cacheprovider test_hang.py"
+    workspace = Workspace(tmp_path, Diff(), tests=TestSpec(command=command, timeout_s=2))
 
-    result = await Sandbox(settings).run_tests(diff)
+    result = await workspace.run_tests()
 
-    assert result.ran and not result.passed
-    assert "timeout" in result.summary
+    assert result.startswith("error:")
+    assert "timeout" in result
     pytest_pid, child_pid = map(int, pids.read_text().split())
     assert not _alive(pytest_pid)
     # The grandchild is reparented and reaped by init; allow it a moment.

@@ -63,6 +63,8 @@ _SECRET_PREFIXES = ("ACTIONS_", "CODESAGE_", "ANTHROPIC_", "GITHUB_TOKEN", "VOYA
 class TestSpec:
     """How to run the repo's tests (from ``.codesage.yml`` ``tests:``)."""
 
+    __test__ = False  # not a pytest test class, despite the name
+
     command: str
     setup: str | None = None
     timeout_s: int = 300
@@ -303,7 +305,7 @@ class Workspace:
             merge_stderr=True,
         )
         if res.timed_out:
-            return f"error: tests exceeded {self.tests.timeout_s}s and were killed"
+            return f"error: timeout: tests exceeded {self.tests.timeout_s}s and were killed"
         return f"exit code {res.returncode}\n{res.stdout[-TEST_OUTPUT_TAIL:]}"
 
     async def semantic_search(self, query: str, top_k: int = 6) -> str:
