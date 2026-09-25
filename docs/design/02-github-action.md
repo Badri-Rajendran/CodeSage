@@ -2,7 +2,8 @@
 
 > Status: approved design (2026-09-23). Facts marked **(verified)** were checked
 > against docs.github.com, with sources in [../decisions.md](../decisions.md#verified-external-facts).
-> Items marked **(to verify, Phase 5)** are undocumented and are confirmed on a test repo.
+> Items marked **(verified on a test repo)** are undocumented by GitHub and were
+> confirmed on `Badri-Rajendran/codesage-sandbox` on 2026-09-25.
 
 ## Goals
 
@@ -94,8 +95,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  checks: write
-  issues: write          # removing the codesage:review label (to verify, Phase 5)
+  checks: write          # pull-requests: write also covers removing the label (verified on a test repo)
 concurrency:
   group: codesage-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: true
@@ -208,8 +208,9 @@ budget-limited-only (`neutral`) > pass (`success`).
   - a per-agent cost table, and a "budget-limited" note when relevant
   - a footer with the CodeSage version
 - **Fallback:** if the create-review call returns 422, it's retried once with no
-  inline comments and every finding in the body. GitHub doesn't document whether a
-  single bad comment fails the whole review **(to verify, Phase 5)**.
+  inline comments and every finding in the body. One comment on a line outside the
+  diff fails the **whole** review with 422 "Line could not be resolved", and nothing
+  is posted **(verified on a test repo)**.
 - `APPROVE` and `REQUEST_CHANGES` are never used. `APPROVE` by `GITHUB_TOKEN` is off
   by default in new repos **(verified)**, and the gate's blocking signal is the check run.
 
@@ -223,8 +224,9 @@ budget-limited-only (`neutral`) > pass (`success`).
 
 After a label-triggered run, `codesage:review` is removed
 (`DELETE /repos/{r}/issues/{n}/labels/codesage:review`), so adding it again
-triggers a new review. The permission this needs (`issues: write` or
-`pull-requests: write`) is **to verify in Phase 5**.
+triggers a new review. `pull-requests: write` is enough; `issues: write` isn't
+needed **(verified on a test repo)**: a run whose token had only checks, contents,
+metadata and pull-requests removed the label.
 
 ## Process exit semantics
 
@@ -238,8 +240,7 @@ triggers a new review. The permission this needs (`issues: write` or
 
 - The Anthropic key comes only from the `anthropic-api-key` input (a repo secret).
   It is never passed to `run_tests` (see [01-agent-engine.md](01-agent-engine.md#run_tests)).
-- The workflow grants only `contents: read`, `pull-requests: write`, `checks: write`
-  and (pending verification) `issues: write`.
+- The workflow grants only `contents: read`, `pull-requests: write` and `checks: write`.
 - Only same-repo PRs from trusted authors are reviewed. `pull_request_target` is **not**
   used, because GitHub warns against running PR code under it **(verified)**.
 - Repo names are checked with `validate_repo` (`app/github/client.py`) before any

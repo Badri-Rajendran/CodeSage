@@ -10,8 +10,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  checks: write
-  issues: write   # lets the action remove the codesage:review label
+  checks: write   # pull-requests: write also covers removing the codesage:review label
 concurrency:
   group: codesage-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: true

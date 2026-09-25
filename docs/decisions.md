@@ -64,10 +64,18 @@ Checked on 2026-09-23. "Installed source" means the project's `.venv` at that da
 | `actions/checkout` current major is v7; `fetch-depth` defaults to 1, and 0 fetches all history | https://github.com/actions/checkout |
 | Step summary max 1 MiB per step | https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands |
 
-**Not documented** (to be confirmed on a test repo in Phase 5):
-- the behaviour when a review comment's line is outside the diff (whether the whole review fails)
-- the maximum number of comments per review
-- the permission needed to remove a label from a PR
+**Not documented by GitHub.** Checked on the private test repo `Badri-Rajendran/codesage-sandbox` on 2026-09-25:
+- **A review comment on a line outside the diff:** the **whole** review fails with
+  422 `"Line could not be resolved"` and nothing is posted. The same comment on an
+  added line alone is accepted. `GitHubPublisher` retries once, body-only.
+- **Removing a label from a PR:** `pull-requests: write` is enough. The run's
+  `GITHUB_TOKEN` permissions were Checks: write, Contents: read, Metadata: read and
+  PullRequests: write, with no `issues: write`, and the label was removed.
+- **Maximum comments per review:** not determined. A probe review with 100 inline
+  comments was refused with 403 "secondary rate limit … content creation". It came
+  right after several reviews in quick succession, so it can't be attributed to the
+  comment count alone. CodeSage caps inline comments at 30, and further findings go
+  in the review body.
 - ~~`actions/setup-python`'s current major version~~: v7.0.0 (2026-07-20), checked on 2026-09-24 via the GitHub releases API; `actions/checkout` is v7.0.1
 
 ### LangGraph and LangChain
@@ -159,3 +167,21 @@ The owner approved one paid run: the $0.02-budget case, on a throwaway clone wit
   enforcement happens between calls, and the real total is reported.
 - The normal $0.50 run and the forced revise-round run weren't paid for. They're checked by code
   review and by the Phase 5/6 live runs.
+
+## Phase 5 verification (2026-09-25)
+
+These runs used the private test repo `Badri-Rajendran/codesage-sandbox`, with a workflow
+pointed at `@feat/agentic-workflows`. They ran in **stub mode**, before the repository
+secret was added: free, and exercising every trigger and the full publishing path.
+
+| Case | Result |
+|---|---|
+| PR opened with a planted `os.system`/`shell=True` change (#1) | Review posted by `github-actions[bot]`; `CodeSage` check `failure`, "Needs attention · 1 critical, 1 high" |
+| `codesage:review` label on #1 | Reviewed again; the label was removed (also with `issues: write` taken away) |
+| Draft PR with a clean change (#2) | Workflow run `skipped` |
+| #2 marked ready for review | Reviewed; check `success`, "No blocking issues · score 0.65" |
+| Plain comment "lgtm" on #2 | Run `skipped` |
+| `/codesage review` comment by the owner on #2 | Reviewed; the checkout used the PR head SHA looked up via `GET /pulls/{n}` |
+| Non-collaborator comment | Not run live (it needs a second account); covered by `rules.evaluate` and the workflow's job-level `if` |
+
+Paid runs, to judge review quality with real models, follow once the secret is set.
