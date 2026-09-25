@@ -36,7 +36,7 @@ from app.config import get_settings
 from app.db.models import Review, UsageEventRow
 from app.db.session import SessionFactory
 from app.diff import Diff
-from app.github.client import GitHubClient
+from app.github.client import GitHubClient, pr_context
 from app.llm.client import LLMClient
 from app.llm.telemetry import CostTracker
 from app.logging_config import get_logger
@@ -154,15 +154,7 @@ class ReviewService:
             yield graph_for(Workspace.diff_only(parsed, semantic=semantic))
 
     async def _pr_context(self, repo: str, pr_number: int) -> dict:
-        pr = await GitHubClient(self.settings).get_pr(repo, pr_number)
-        return {
-            "number": pr["number"],
-            "title": pr.get("title") or "",
-            "body": pr.get("body") or "",
-            "base_sha": pr["base"]["sha"],
-            "head_sha": pr["head"]["sha"],
-            "url": pr.get("html_url"),
-        }
+        return pr_context(await GitHubClient(self.settings).get_pr(repo, pr_number))
 
     async def _drive(
         self,

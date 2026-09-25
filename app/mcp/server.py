@@ -18,7 +18,7 @@ from mcp.server.fastmcp import FastMCP
 from app.agents.graph import build_review_graph, make_deps, prepare_diff
 from app.config import get_settings
 from app.db.session import SessionFactory
-from app.github.client import GitHubClient
+from app.github.client import GitHubClient, pr_context
 from app.llm.client import LLMClient
 from app.llm.telemetry import CostTracker
 from app.logging_config import configure_logging
@@ -46,9 +46,7 @@ async def _run_review(repo: str, diff: str, pr_number: int | None, pr: dict | No
     inputs = {"repo": repo, "pr_number": pr_number, "diff": diff}
 
     if pr is not None:
-        ctx = {"number": pr["number"], "title": pr.get("title") or "",
-               "body": pr.get("body") or "", "base_sha": pr["base"]["sha"],
-               "head_sha": pr["head"]["sha"], "url": pr.get("html_url")}
+        ctx = pr_context(pr)
         async with Workspace.clone_at(
             repo, ctx["head_sha"], diff_model, base_sha=ctx["base_sha"],
             token=settings.github_token or None, semantic=semantic,

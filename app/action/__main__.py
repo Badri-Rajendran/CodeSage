@@ -35,7 +35,7 @@ from app.action.rules import REVIEW_LABEL, Trigger, evaluate, is_fork
 from app.agents.graph import build_review_graph, make_deps
 from app.config import Settings
 from app.diff import parse_diff
-from app.github.client import GitHubClient, validate_repo
+from app.github.client import GitHubClient, pr_context, validate_repo
 from app.llm.client import LLMClient
 from app.llm.telemetry import CostTracker
 from app.logging_config import configure_logging, get_logger
@@ -93,17 +93,6 @@ async def _resolve_pr(
     return pr
 
 
-def _pr_context(pr: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "number": pr["number"],
-        "title": pr.get("title") or "",
-        "body": pr.get("body") or "",
-        "base_sha": pr["base"]["sha"],
-        "head_sha": pr["head"]["sha"],
-        "url": pr.get("html_url"),
-    }
-
-
 def _local_diff(pr: dict, workspace: Path) -> str:
     return subprocess.run(
         ["git", "diff", "--no-color", f"{pr['base']['sha']}...{pr['head']['sha']}"],
@@ -159,7 +148,7 @@ async def cmd_review(args: argparse.Namespace, settings: Settings) -> int:
         step_summary("CodeSage skipped: pull requests from forks are not reviewed.")
         return 0
 
-    ctx = _pr_context(pr)
+    ctx = pr_context(pr)
     workspace_root = Path(args.workspace or os.environ.get("GITHUB_WORKSPACE") or ".").resolve()
     publisher = GitHubPublisher(gh, repository, ctx["number"], ctx["head_sha"])
     tracker = CostTracker()

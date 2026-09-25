@@ -34,6 +34,18 @@ def validate_repo(repo: str) -> str:
     return repo
 
 
+def pr_context(pr: dict[str, Any]) -> dict[str, Any]:
+    """The PR fields the review engine uses, from a GitHub pull-request object."""
+    return {
+        "number": pr["number"],
+        "title": pr.get("title") or "",
+        "body": pr.get("body") or "",
+        "base_sha": pr["base"]["sha"],
+        "head_sha": pr["head"]["sha"],
+        "url": pr.get("html_url"),
+    }
+
+
 def _validate_number(n: int, what: str = "pull request number") -> int:
     if not isinstance(n, int) or n < 1:
         raise ValueError(f"Invalid {what}: {n!r}")

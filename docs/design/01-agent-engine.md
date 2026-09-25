@@ -191,8 +191,9 @@ default on Claude 5 models.
   that it reliably yields `structured_response`.
 - **Hard stop:** no new model call starts once `BudgetGuard.total_spent >= total_usd`.
   The limit is enforced *between* calls, so a single in-flight call can overshoot
-  slightly. That overshoot is bounded by per-call `max_tokens` (reviewers 4,000,
-  judge 3,000), and the actual total is always reported.
+  slightly. That overshoot is bounded by per-call `max_tokens` (4,000 for every role; the
+  judge was raised from the planned 3,000 because adaptive thinking counts toward it),
+  and the actual total is always reported.
 - **The reserve** ($0.20) is used only by reflection, the judge and a revise round. The
   reviewers can't touch it.
 - **If the reserve runs out:** reflection or the judge is skipped. The review is

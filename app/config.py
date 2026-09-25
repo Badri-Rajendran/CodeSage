@@ -29,7 +29,6 @@ class Settings(BaseSettings):
     judge_model: str = Field(default="claude-opus-5", alias="CODESAGE_JUDGE_MODEL")
     reviewer_effort: str = Field(default="medium", alias="CODESAGE_REVIEWER_EFFORT")
     judge_effort: str = Field(default="high", alias="CODESAGE_JUDGE_EFFORT")
-    max_tokens: int = Field(default=8000, alias="CODESAGE_MAX_TOKENS")
     # Hard cap on model spend per review (USD).
     budget_usd: float = Field(default=0.50, alias="CODESAGE_BUDGET_USD")
 
@@ -51,7 +50,6 @@ class Settings(BaseSettings):
 
     # ── Behavior ──────────────────────────────────────────────────────────────
     hitl_threshold: float = Field(default=0.6, alias="CODESAGE_HITL_THRESHOLD")
-    rag_top_k: int = Field(default=6, alias="CODESAGE_RAG_TOP_K")
 
     # ── Security ──────────────────────────────────────────────────────────────
     # Comma-separated API keys accepted on /api/v1 (Bearer or X-API-Key). With no
