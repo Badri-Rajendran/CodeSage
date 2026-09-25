@@ -1,6 +1,6 @@
 # Design 03: Local Mode, Real Approval Gate, Console and Job Fixes
 
-> Status: approved design (2026-09-23). Local mode is the owner's on-demand
+> Status: **implemented** and verified locally (designed 2026-09-23). Local mode is the owner's on-demand
 > companion to the GitHub Action. It isn't hosted and isn't connected to Action runs.
 
 ## Goals

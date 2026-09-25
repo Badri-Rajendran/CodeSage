@@ -1,6 +1,6 @@
 # Design 02: GitHub Action
 
-> Status: approved design (2026-09-23). Facts marked **(verified)** were checked
+> Status: **implemented** and verified on a test repo (designed 2026-09-23). Facts marked **(verified)** were checked
 > against docs.github.com, with sources in [../decisions.md](../decisions.md#verified-external-facts).
 > Items marked **(verified on a test repo)** are undocumented by GitHub and were
 > confirmed on `Badri-Rajendran/codesage-sandbox` on 2026-09-25.

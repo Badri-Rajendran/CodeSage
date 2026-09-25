@@ -6,7 +6,8 @@ the current one fails. The task-level implementation plan, including the owner's
 execution rules (ask before each paid API run and each outward-facing GitHub step),
 is [plans/2026-09-24-agentic-workflows.md](plans/2026-09-24-agentic-workflows.md).
 
-**Branch:** `feat/agentic-workflows`.
+**Branch:** `feat/agentic-workflows`. **Status:** all phases done; verification logs are in
+[decisions.md](decisions.md). The branch hasn't been merged to `main`; that is the owner's call.
 
 ## Standing checks (every phase)
 
@@ -25,7 +26,7 @@ is [plans/2026-09-24-agentic-workflows.md](plans/2026-09-24-agentic-workflows.md
 - The API lockdown and CLAUDE.md are committed (`51be21f`).
 - `origin` now points at `https://github.com/Badri-Rajendran/CodeSage.git`.
 
-### Phase 1: Spike (throwaway)
+### Phase 1: Spike (throwaway) ✅ done
 
 This proves the five open items in [decisions.md](decisions.md#open-items-for-the-phase-1-spike)
 against the live API. The spike code lives in the session scratchpad, **not** in the repo.
@@ -37,7 +38,7 @@ against the live API. The spike code lives in the session scratchpad, **not** in
 - **If an item fails, stop** and present the fallback options to the owner before
   continuing.
 
-### Phase 2: Dependencies and packaging split
+### Phase 2: Dependencies and packaging split ✅ done
 
 **Changes:**
 - **Engine dependencies** in `pyproject.toml` / `requirements.txt`:
@@ -56,7 +57,7 @@ against the live API. The spike code lives in the session scratchpad, **not** in
 - `pip install .` (engine only) into a clean venv imports `app.action` without any
   server package.
 
-### Phase 3: Diff model and Workspace
+### Phase 3: Diff model and Workspace ✅ done
 
 **Changes:**
 - `app/diff/`: parser, `is_commentable`, `filter`.
@@ -69,7 +70,7 @@ against the live API. The spike code lives in the session scratchpad, **not** in
 - Run each tool against this repo, including a path that escapes the root (must be
   refused) and a `run_tests` command that sleeps past its timeout (must be killed).
 
-### Phase 4: Review engine
+### Phase 4: Review engine ✅ done
 
 **Changes:**
 - `app/llm/models.py`
@@ -93,7 +94,7 @@ against the live API. The spike code lives in the session scratchpad, **not** in
 - The same run with `budget_usd: 0.02` reports `budget_limited` and still returns structured findings.
 - A low-quality planted review is judged below 0.6 and gets exactly one `revise` round.
 
-### Phase 5: GitHub Action
+### Phase 5: GitHub Action ✅ done
 
 **Changes:**
 - `app/action/`: `resolve` and `review` commands, rules, config, the local reproduction entry point.
@@ -114,7 +115,7 @@ against the live API. The spike code lives in the session scratchpad, **not** in
   what happens to a comment on a line outside the diff, the permission needed to
   remove the label, and setup-python's current major version.
 
-### Phase 6: Local HITL and console
+### Phase 6: Local HITL and console ✅ done
 
 **Changes:**
 - `migrations/0002_agentic.sql`, `scripts/migrate.py` and the model update.
@@ -137,7 +138,7 @@ against the live API. The spike code lives in the session scratchpad, **not** in
 - A row forced to `running` becomes `failed` on restart.
 - SSE for a random id returns 404; SSE for a finished review returns its final state and closes.
 
-### Phase 7: Clean-up and docs
+### Phase 7: Clean-up and docs ✅ done
 
 **Changes:**
 - Delete `deploy/` and remove every reference to it (list in

@@ -1,8 +1,8 @@
 # Design 01: Review Engine (agents, tools, budget, reflection, judge)
 
-> Status: approved design (2026-09-23). Two points in this doc are **not yet
-> proven against the live API** and are covered by the Phase 1 spike. They're
-> marked ⚠︎ below. See [../roadmap.md](../roadmap.md).
+> Status: **implemented** (designed 2026-09-23). The two points marked ⚠︎ were
+> proven against the live API in the Phase 1 spike; see
+> [../decisions.md](../decisions.md#phase-1-spike-results-2026-09-24).
 
 ## Goals
 

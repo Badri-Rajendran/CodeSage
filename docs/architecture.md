@@ -1,8 +1,8 @@
 # CodeSage Architecture
 
-> Status: **approved design, not yet implemented** (2026-09-23). The current code
-> differs; see [roadmap.md](roadmap.md) for the build order and
-> [decisions.md](decisions.md) for why each choice was made.
+> Status: **implemented** on `feat/agentic-workflows` (designed 2026-09-23, verified
+> 2026-09-25). [roadmap.md](roadmap.md) has the build order,
+> [decisions.md](decisions.md) the reasons and verification logs.
 
 ## What CodeSage is
 

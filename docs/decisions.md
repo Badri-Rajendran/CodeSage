@@ -184,7 +184,21 @@ secret was added: free, and exercising every trigger and the full publishing pat
 | `/codesage review` comment by the owner on #2 | Reviewed; the checkout used the PR head SHA looked up via `GET /pulls/{n}` |
 | Non-collaborator comment | Not run live (it needs a second account); covered by `rules.evaluate` and the workflow's job-level `if` |
 
-Paid runs, to judge review quality with real models, follow once the secret is set.
+**Paid runs** (2026-09-25, with the secret set; Sonnet 5 reviewers and the Opus 5 judge; owner-approved):
+
+| Case | Result | Cost |
+|---|---|---|
+| PR #1 (planted bug), label trigger | Check `failure`, "1 critical, 1 high"; score 0.87 | $0.1287 (7 calls) |
+| PR #2 (clean), label trigger | Check `success`; score 0.82 | $0.0746 (8 calls) |
+
+- **PR #1, inline comments:** all three landed on the right lines: `shell=True` at 19–20,
+  `os.system` at 14, and division by zero at 23. Each carries evidence and attribution
+  such as "correctness, security, style", because reflection merged the duplicates.
+  Traces show real `search_code` calls.
+- **PR #2:** one accurate info note (a local import in a test). The correctness agent
+  called `read_file`, then `run_tests` on `tests/test_cart.py` ("4 passed", exit 0). This
+  is the agent-invoked test tool working end to end (D8). The label was removed.
+- **Total paid spend in Phase 5:** $0.2033.
 
 ## Phase 6 verification (2026-09-24/25)
 
