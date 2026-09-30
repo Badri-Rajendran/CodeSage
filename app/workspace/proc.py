@@ -56,9 +56,26 @@ async def run_bounded(
         with contextlib.suppress(ProcessLookupError):
             os.killpg(proc.pid, signal.SIGKILL)
         await proc.wait()
+        await _wait_group_gone(proc.pid)
         return ProcResult(proc.returncode, "", "", timed_out=True)
     return ProcResult(
         proc.returncode,
         (out or b"").decode(errors="replace"),
         (err or b"").decode(errors="replace"),
     )
+
+
+async def _wait_group_gone(pgid: int, limit: float = 5.0) -> None:
+    """Wait until no process is left in the killed group.
+
+    ``proc.wait()`` only reaps the direct child. When a shell forks rather than
+    exec'ing the command (dash, Linux's ``/bin/sh``, does), the command and its
+    children are grandchildren: they are dying or zombies until init reaps them.
+    """
+    deadline = asyncio.get_running_loop().time() + limit
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            os.killpg(pgid, 0)
+        except (ProcessLookupError, PermissionError):
+            return
+        await asyncio.sleep(0.05)
