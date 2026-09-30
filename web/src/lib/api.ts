@@ -1,6 +1,7 @@
 // Typed REST client. All calls are relative to the same origin; in dev the Vite
 // proxy forwards /api to the backend, and in production nginx does the same.
 
+import { authHeaders, notifyAuthRequired } from "./auth";
 import type {
   EvalResult,
   Review,
@@ -12,9 +13,10 @@ const BASE = "/api/v1";
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    headers: { "Content-Type": "application/json", ...authHeaders() },
   });
+  if (res.status === 401) notifyAuthRequired();
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -48,6 +50,7 @@ export interface ServiceInfo {
   llm_mode: string;
   model: string;
   hitl_threshold?: number;
+  auth_required?: boolean;
 }
 
 export const api = {
@@ -66,10 +69,11 @@ export const api = {
 
   getReview: (id: string) => http<Review>(`/reviews/${id}`),
 
-  approve: (id: string, approved: boolean) =>
-    http<Review>(`/reviews/${id}/approve`, {
+  /** Approve (posts to the PR) or reject a review paused at the gate; it then resumes. */
+  decide: (id: string, approved: boolean, note?: string) =>
+    http<ReviewJob>(`/reviews/${id}/decision`, {
       method: "POST",
-      body: JSON.stringify({ approved }),
+      body: JSON.stringify({ approved, note: note?.trim() || null }),
     }),
 
   telemetry: () => http<TelemetrySummary>("/telemetry"),

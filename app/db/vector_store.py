@@ -2,26 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import CodeChunk
 from app.rag.embeddings import Embedder
+from app.rag.types import RetrievedChunk
 
-
-@dataclass
-class RetrievedChunk:
-    repo: str
-    path: str
-    start_line: int
-    end_line: int
-    content: str
-    score: float
-
-    def cite(self) -> str:
-        return f"{self.path}:{self.start_line}-{self.end_line}"
+__all__ = ["RetrievedChunk", "VectorStore"]
 
 
 class VectorStore:

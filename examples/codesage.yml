@@ -1,0 +1,19 @@
+# Optional per-repository settings: save as .codesage.yml at the repo root.
+# Every key is optional; these are the defaults (except tests and ignore_paths).
+models:
+  reviewer: claude-sonnet-5
+  judge: claude-opus-5
+effort:
+  reviewer: medium
+  judge: high
+budget_usd: 0.50            # hard cap per review
+gate:
+  threshold: 0.6            # a judge score below this fails the CodeSage check
+  fail_on: [critical, high] # so does any finding with these severities
+ignore_paths:               # added to built-in ignores (lock files, dist/, build/, minified files)
+  - "docs/**"
+max_files: 50
+tests:                      # lets the correctness agent run your tests
+  setup: pip install -e ".[dev]"
+  command: pytest -q {target}
+  timeout_s: 300

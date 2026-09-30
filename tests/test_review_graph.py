@@ -5,10 +5,11 @@ from __future__ import annotations
 import pytest
 
 from app.agents.graph import build_review_graph, make_deps
-from app.agents.tools import ReviewTools
 from app.config import get_settings
+from app.diff import parse_diff
 from app.llm.client import LLMClient
 from app.llm.telemetry import CostTracker
+from app.workspace import Workspace
 
 VULN_DIFF = (
     "diff --git a/run.py b/run.py\n"
@@ -36,8 +37,8 @@ async def _run(diff: str) -> dict:
     settings = get_settings()
     client = LLMClient(settings, CostTracker())
     assert client.stubbed, "test must run in stub mode"
-    tools = ReviewTools("demo/x", diff, settings=settings)
-    graph = build_review_graph(make_deps(client, tools, settings))
+    workspace = Workspace.diff_only(parse_diff(diff))
+    graph = build_review_graph(make_deps(client, workspace, settings))
     return await graph.ainvoke({"repo": "demo/x", "pr_number": 1, "diff": diff})
 
 

@@ -1,9 +1,0 @@
-# Caddy reverse proxy in front of the CodeSage API.
-#
-# {$CODESAGE_DOMAIN:80} resolves to:
-#   - your domain (e.g. codesage.example.com) → automatic Let's Encrypt HTTPS
-#   - ":80" when CODESAGE_DOMAIN is unset      → plain HTTP on the droplet IP
-{$CODESAGE_DOMAIN:80} {
-	encode gzip
-	reverse_proxy api:8000
-}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { streamUrl } from "./api";
+import { authHeaders, notifyAuthRequired } from "./auth";
 import type {
   Finding,
   Review,
@@ -8,7 +9,7 @@ import type {
   Trace,
 } from "./types";
 
-export type StageStatus = "pending" | "running" | "completed";
+export type StageStatus = "pending" | "running" | "completed" | "skipped" | "awaiting";
 
 export interface StageState {
   status: StageStatus;
@@ -28,21 +29,34 @@ export interface LiveReview {
   judgeDimensions?: Record<string, number>;
   judgeRationale?: string;
   requiresHumanApproval?: boolean;
+  gateReasons?: string[];
+  githubReviewUrl?: string | null;
   telemetry?: Telemetry;
   result?: Review;
-  status: "idle" | "streaming" | "completed" | "failed";
+  // "awaiting": paused at the approval gate; the stream closes until a decision.
+  status: "idle" | "streaming" | "awaiting" | "completed" | "failed";
   error?: string;
   log: { ts: number; label: string; tone: "info" | "ok" | "warn" | "err" }[];
 }
 
+// Mirrors STAGES in app/agents/graph.py (and STAGES in ./format.ts).
 const STAGE_DEPS: Record<string, string[]> = {
   security: [],
   correctness: [],
   style: [],
   reflection: ["security", "correctness", "style"],
   judge: ["reflection"],
-  human_gate: ["judge"],
+  revise: ["judge"],
+  // Waits for `revise` to be resolved: until then the next step is unknown
+  // (the stream only reports completions), so neither shows as running.
+  human_gate: ["judge", "revise"],
+  publish: ["human_gate"],
 };
+
+// Conditional stages: never shown as running ahead of time (the stream only
+// reports completions). Once the stage that follows them completes without
+// them having run, they were skipped.
+const OPTIONAL_STAGES: Record<string, string> = { revise: "human_gate" };
 
 const STAGE_LABEL: Record<string, string> = {
   security: "Security reviewer",
@@ -50,7 +64,9 @@ const STAGE_LABEL: Record<string, string> = {
   style: "Style reviewer",
   reflection: "Reflection",
   judge: "LLM-as-Judge",
+  revise: "Revision round",
   human_gate: "Human gate",
+  publish: "Publish",
 };
 
 function initialState(): LiveReview {
@@ -69,7 +85,17 @@ function recomputeRunning(stages: Record<string, StageState>): Record<string, St
   for (const [id, deps] of Object.entries(STAGE_DEPS)) {
     const cur = next[id]?.status;
     if (cur === "completed") continue;
-    const depsDone = deps.every((d) => next[d]?.status === "completed");
+    const after = OPTIONAL_STAGES[id];
+    if (after) {
+      const passed = next[after]?.status === "completed";
+      next[id] = { ...(next[id] ?? {}), status: passed ? "skipped" : "pending" };
+      continue;
+    }
+    const depsDone = deps.every((d) =>
+      d in OPTIONAL_STAGES
+        ? ["completed", "skipped"].includes(next[d]?.status ?? "")
+        : next[d]?.status === "completed",
+    );
     next[id] = {
       ...(next[id] ?? { status: "pending" }),
       status: depsDone ? "running" : "pending",
@@ -85,11 +111,11 @@ function recomputeRunning(stages: Record<string, StageState>): Record<string, St
  */
 export function useReviewStream() {
   const [live, setLive] = useState<LiveReview>(initialState);
-  const esRef = useRef<EventSource | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const close = useCallback(() => {
-    esRef.current?.close();
-    esRef.current = null;
+    abortRef.current?.abort();
+    abortRef.current = null;
   }, []);
 
   const reset = useCallback(() => {
@@ -100,41 +126,24 @@ export function useReviewStream() {
   const start = useCallback(
     (reviewId: string) => {
       close();
-      setLive({ ...initialState(), reviewId, status: "streaming" });
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      const fresh = () => setLive({ ...initialState(), reviewId, status: "streaming" });
+      fresh();
 
-      const es = new EventSource(streamUrl(reviewId));
-      esRef.current = es;
-
-      const handle = (ev: ReviewEvent) => {
-        setLive((prev) => reduce(prev, ev));
-      };
-
-      const types = [
-        "review.started",
-        "stage.completed",
-        "telemetry.update",
-        "review.completed",
-        "review.failed",
-      ];
-      for (const t of types) {
-        es.addEventListener(t, (e) => {
-          try {
-            handle(JSON.parse((e as MessageEvent).data));
-          } catch {
-            /* ignore malformed frame */
-          }
-        });
-      }
-
-      es.onerror = () => {
-        // The browser auto-reconnects; if the stream already finished, close it.
-        setLive((prev) => {
-          if (prev.status === "completed" || prev.status === "failed") {
-            es.close();
-          }
-          return prev;
-        });
-      };
+      void consumeStream(reviewId, ctrl.signal, {
+        // The broker replays every buffered event on (re)connect, so each
+        // attempt rebuilds the view from a clean slate.
+        onConnect: fresh,
+        onEvent: (ev) => setLive((prev) => reduce(prev, ev)),
+        onFatal: (error) =>
+          setLive((prev) => ({
+            ...prev,
+            status: "failed",
+            error,
+            log: [{ ts: Date.now(), label: error, tone: "err" }, ...prev.log],
+          })),
+      });
     },
     [close],
   );
@@ -142,6 +151,86 @@ export function useReviewStream() {
   useEffect(() => () => close(), [close]);
 
   return { live, start, reset };
+}
+
+const TERMINAL = new Set(["review.completed", "review.failed", "review.awaiting_approval"]);
+const MAX_ATTEMPTS = 5;
+const RETRY_MS = 3000;
+
+/**
+ * Reads the SSE stream with fetch (not EventSource) so the API key can travel
+ * in a header instead of the URL. Reconnects on dropped connections until a
+ * terminal event arrives or the caller aborts.
+ */
+async function consumeStream(
+  reviewId: string,
+  signal: AbortSignal,
+  cb: {
+    onConnect: () => void;
+    onEvent: (ev: ReviewEvent) => void;
+    onFatal: (error: string) => void;
+  },
+): Promise<void> {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS && !signal.aborted; attempt++) {
+    try {
+      const res = await fetch(streamUrl(reviewId), {
+        headers: { Accept: "text/event-stream", ...authHeaders() },
+        signal,
+      });
+      if (res.status === 401) {
+        notifyAuthRequired();
+        cb.onFatal("Unauthorized: set a valid API key to watch this review.");
+        return;
+      }
+      if (!res.ok || !res.body) {
+        cb.onFatal(`Stream failed: HTTP ${res.status}`);
+        return;
+      }
+      if (attempt > 1) cb.onConnect();
+      if (await readEvents(res.body, cb.onEvent)) return;
+    } catch {
+      if (signal.aborted) return;
+    }
+    await new Promise((r) => setTimeout(r, RETRY_MS));
+  }
+  if (!signal.aborted) cb.onFatal("Lost connection to the review stream.");
+}
+
+/** Parses SSE frames from `body`; resolves true once a terminal event is seen. */
+async function readEvents(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (ev: ReviewEvent) => void,
+): Promise<boolean> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return false;
+    buffer += decoder.decode(value, { stream: true });
+    let sep: number;
+    while ((sep = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      const data = frame
+        .split("\n")
+        .filter((l) => l.startsWith("data:"))
+        .map((l) => l.slice(5).trimStart())
+        .join("\n");
+      if (!data) continue; // retry hint or keep-alive comment
+      let ev: ReviewEvent;
+      try {
+        ev = JSON.parse(data);
+      } catch {
+        continue; // ignore malformed frame
+      }
+      onEvent(ev);
+      if (TERMINAL.has(ev.type)) {
+        await reader.cancel();
+        return true;
+      }
+    }
+  }
 }
 
 function reduce(prev: LiveReview, ev: ReviewEvent): LiveReview {
@@ -170,30 +259,31 @@ function reduce(prev: LiveReview, ev: ReviewEvent): LiveReview {
         findingsCount: ev.findings_count,
         trace: ev.trace ?? stages[ev.stage]?.trace,
       };
-      const draftFindings =
-        ev.trace && typeof ev.findings_count === "number"
-          ? prev.draftFindings
-          : prev.draftFindings;
       const label =
         ev.stage === "judge"
           ? `${STAGE_LABEL[ev.stage]} scored ${ev.judge_score?.toFixed(2) ?? "—"}`
-          : ev.stage === "reflection"
+          : ev.stage === "reflection" || ev.stage === "revise"
             ? `${STAGE_LABEL[ev.stage]} → ${ev.findings_count ?? 0} findings`
             : ev.stage === "human_gate"
               ? ev.requires_human_approval
-                ? "Human approval required"
-                : "Auto-approved by gate"
-              : `${STAGE_LABEL[ev.stage]} done · ${ev.findings_count ?? 0} draft finding(s)`;
+                ? `Needs attention: ${(ev.gate_reasons ?? []).join("; ") || "gate tripped"}`
+                : "Passed the gate"
+              : ev.stage === "publish"
+                ? ev.github_review_url
+                  ? "Posted to the pull request"
+                  : "Nothing to publish"
+                : `${STAGE_LABEL[ev.stage]} done · ${ev.findings_count ?? 0} draft finding(s)`;
       return {
         ...prev,
         stages: recomputeRunning(stages),
-        draftFindings,
         summary: ev.summary ?? prev.summary,
         judgeScore: ev.judge_score ?? prev.judgeScore,
         judgeDimensions: ev.judge_dimensions ?? prev.judgeDimensions,
         judgeRationale: ev.judge_rationale ?? prev.judgeRationale,
         requiresHumanApproval:
           ev.requires_human_approval ?? prev.requiresHumanApproval,
+        gateReasons: ev.gate_reasons ?? prev.gateReasons,
+        githubReviewUrl: ev.github_review_url ?? prev.githubReviewUrl,
         log: [
           {
             ts: Date.now(),
@@ -214,8 +304,43 @@ function reduce(prev: LiveReview, ev: ReviewEvent): LiveReview {
         summary: ev.review.summary ?? prev.summary,
         judgeScore: ev.review.judge_score ?? prev.judgeScore,
         requiresHumanApproval: ev.review.requires_human_approval,
+        gateReasons: ev.review.gate_reasons ?? prev.gateReasons,
+        githubReviewUrl: ev.review.github_review_url ?? prev.githubReviewUrl,
         telemetry: ev.review.telemetry ?? prev.telemetry,
-        log: [{ ts: Date.now(), label: "Review complete", tone: "ok" }, ...log],
+        log: [
+          {
+            ts: Date.now(),
+            label:
+              ev.review.status === "rejected"
+                ? "Review rejected: nothing posted"
+                : ev.review.github_review_url
+                  ? "Review complete and posted to the PR"
+                  : "Review complete",
+            tone: ev.review.status === "rejected" ? "warn" : "ok",
+          },
+          ...log,
+        ],
+      };
+    case "review.awaiting_approval":
+      return {
+        ...prev,
+        status: "awaiting",
+        // Paused inside the gate: revise didn't run, the gate waits for a human.
+        stages: {
+          ...prev.stages,
+          revise:
+            prev.stages.revise?.status === "completed"
+              ? prev.stages.revise
+              : { ...prev.stages.revise, status: "skipped" },
+          human_gate: { ...prev.stages.human_gate, status: "awaiting" },
+        },
+        result: ev.review,
+        summary: ev.review.summary ?? prev.summary,
+        judgeScore: ev.review.judge_score ?? prev.judgeScore,
+        requiresHumanApproval: true,
+        gateReasons: ev.gate_reasons,
+        telemetry: ev.review.telemetry ?? prev.telemetry,
+        log: [{ ts: Date.now(), label: "Paused: waiting for your decision", tone: "warn" }, ...log],
       };
     case "review.failed":
       return {

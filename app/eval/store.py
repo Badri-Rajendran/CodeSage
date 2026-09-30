@@ -20,6 +20,25 @@ from app.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# The API may only launch runs over datasets in this directory.
+DATASETS_DIR = Path("eval/datasets")
+
+# Strong references to in-flight background tasks; the event loop only holds
+# weak ones, so an unreferenced task can be garbage-collected mid-run.
+_tasks: set[asyncio.Task[None]] = set()
+
+
+def resolve_dataset(dataset: str) -> Path:
+    """Resolve an API-supplied dataset path, requiring it to live in DATASETS_DIR."""
+    base = DATASETS_DIR.resolve()
+    path = Path(dataset)
+    target = (path if path.is_absolute() else Path.cwd() / path).resolve()
+    if not target.is_relative_to(base) or target.suffix != ".jsonl":
+        raise ValueError(f"Dataset must be a .jsonl file under {DATASETS_DIR}/")
+    if not target.is_file():
+        raise ValueError(f"Dataset not found: {dataset}")
+    return target
+
 
 def _kind_for(name: str) -> str:
     if name.startswith("compare_"):
@@ -81,15 +100,19 @@ async def compare_eval(
     return report
 
 
+def _spawn(coro: Any, label: str) -> None:
+    task = asyncio.create_task(_guarded(coro, label))
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+
 def launch_run(dataset: str, model: str) -> None:
     """Fire-and-forget an eval run as a background task."""
-    asyncio.create_task(_guarded(run_eval(dataset, model), "eval run"))
+    _spawn(run_eval(dataset, model), "eval run")
 
 
 def launch_compare(dataset: str, baseline: str, candidate: str, tolerance: float) -> None:
-    asyncio.create_task(
-        _guarded(compare_eval(dataset, baseline, candidate, tolerance), "eval compare")
-    )
+    _spawn(compare_eval(dataset, baseline, candidate, tolerance), "eval compare")
 
 
 async def _guarded(coro: Any, label: str) -> None:

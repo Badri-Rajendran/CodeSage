@@ -1,4 +1,14 @@
-from app.agents.sandbox import extract_added_files
+"""Added-line extraction, now provided by the diff model (was sandbox.extract_added_files)."""
+
+from app.diff import parse_diff
+
+
+def extract_added_files(diff: str) -> dict[str, str]:
+    """Added-line content per file, via the diff model's hunks."""
+    return {
+        f.path: "\n".join(ln[1:] for h in f.hunks for ln in h.lines if ln.startswith("+"))
+        for f in parse_diff(diff).files
+    }
 
 
 def test_extract_added_files():

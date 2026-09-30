@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Check, Coins, Sparkles, Terminal, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Coins, ExternalLink, Sparkles, Terminal } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import type { Finding, Review } from "../lib/types";
 import { fmtTokens, fmtUsd, SEVERITY_ORDER, shortId, timeAgo } from "../lib/format";
@@ -8,6 +8,8 @@ import { Card, CardHeader, EmptyState, PageHeader, Spinner, Stat } from "../comp
 import { FindingCard } from "../components/FindingCard";
 import { JudgePanel } from "../components/JudgePanel";
 import { TraceView } from "../components/TraceView";
+import { DecisionPanel } from "../components/DecisionPanel";
+import { StatusChip } from "../components/ReviewRow";
 
 export function ReviewDetail() {
   const { id = "" } = useParams();
@@ -29,10 +31,19 @@ export function ReviewDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  async function decide(ok: boolean) {
+  // While a review runs (or resumes after a decision), refresh until it settles.
+  useEffect(() => {
+    if (review?.status !== "running") return;
+    const t = setInterval(load, 2000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [review?.status]);
+
+  async function decide(ok: boolean, note: string) {
     setBusy(true);
     try {
-      setReview(await api.approve(id, ok));
+      await api.decide(id, ok, note);
+      await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -78,29 +89,66 @@ export function ReviewDetail() {
         title={`${review.repo}${review.pr_number != null ? ` #${review.pr_number}` : ""}`}
         subtitle={`${shortId(review.id)} · ${review.model ?? ""} · ${timeAgo(review.created_at)}`}
         actions={
-          review.requires_human_approval ? (
-            <div className="flex gap-2">
-              <button onClick={() => decide(false)} disabled={busy} className="btn-ghost">
-                <X className="h-4 w-4" /> Reject
-              </button>
-              <button onClick={() => decide(true)} disabled={busy} className="btn-primary">
-                {busy ? <Spinner /> : <Check className="h-4 w-4" />} Approve
-              </button>
-            </div>
-          ) : review.approved != null ? (
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                review.approved
-                  ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-500"
-                  : "border-rose-500/30 bg-rose-500/5 text-rose-400"
-              }`}
-            >
-              {review.approved ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
-              {review.approved ? "Approved" : "Rejected"}
-            </span>
-          ) : null
+          <div className="flex items-center gap-3">
+            <StatusChip review={review} />
+            {review.github_review_url && (
+              <a
+                href={review.github_review_url}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-ghost"
+              >
+                <ExternalLink className="h-4 w-4" /> On GitHub
+              </a>
+            )}
+          </div>
         }
       />
+
+      <div className="mb-6 space-y-3">
+        {review.status === "awaiting_approval" && (
+          <DecisionPanel
+            reasons={review.gate_reasons ?? []}
+            busy={busy}
+            canPost={review.head_sha != null}
+            onDecide={decide}
+          />
+        )}
+        {review.status === "failed" && review.error && (
+          <Card className="border-rose-500/30 bg-rose-500/5 p-4 text-sm text-rose-400">
+            <p className="flex items-center gap-2 font-medium">
+              <AlertTriangle className="h-4 w-4" /> Review failed
+            </p>
+            <p className="mt-1 break-words text-rose-300/80">{review.error}</p>
+          </Card>
+        )}
+        {review.gate_tripped && review.status !== "awaiting_approval" && (
+          <Card className="p-4 text-sm">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+              Approval gate
+            </p>
+            <ul className="list-disc space-y-0.5 pl-5 text-ink-muted">
+              {(review.gate_reasons ?? []).map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
+            {review.decision && (
+              <p className="mt-2 text-ink-muted">
+                <span className="font-medium text-ink">
+                  {review.decision === "approved" ? "Approved" : "Rejected"}
+                </span>
+                {review.decided_at && ` ${timeAgo(review.decided_at)}`}
+                {review.decision_note && `: “${review.decision_note}”`}
+              </p>
+            )}
+          </Card>
+        )}
+        {review.budget_limited && (
+          <p className="text-xs text-amber-500">
+            The review budget was reached, so some agents stopped early.
+          </p>
+        )}
+      </div>
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Findings" value={review.findings.length} />
@@ -148,7 +196,7 @@ export function ReviewDetail() {
           <Card>
             <CardHeader
               title="Agent reasoning traces"
-              subtitle="ReAct trajectories per reviewer"
+              subtitle="Tool calls and reasoning per agent"
               icon={<Terminal className="h-4 w-4" />}
             />
             <div className="p-5">

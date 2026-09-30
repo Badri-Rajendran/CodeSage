@@ -3,14 +3,19 @@
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
 
 export interface Finding {
+  id?: string | null;
+  reviewer?: string | null;
+  category?: string | null;
   title: string;
   severity: Severity | string;
   rationale: string;
   confidence: number;
-  file?: string | null;
+  path?: string | null;
   line?: number | null;
+  end_line?: number | null;
   suggestion?: string | null;
-  reviewer?: string | null;
+  evidence?: string[];
+  merged_from?: string[];
 }
 
 export interface TraceStep {
@@ -42,11 +47,18 @@ export interface Telemetry {
   by_component: UsageEvent[];
 }
 
+export type ReviewStatus =
+  | "running"
+  | "awaiting_approval"
+  | "completed"
+  | "rejected"
+  | "failed";
+
 export interface Review {
   id: string;
   repo: string;
   pr_number: number | null;
-  status?: string;
+  status?: ReviewStatus | string;
   model?: string;
   findings: Finding[];
   summary?: string | null;
@@ -58,6 +70,17 @@ export interface Review {
   traces?: Trace[] | null;
   telemetry?: Telemetry | null;
   created_at?: string | null;
+  pr_title?: string | null;
+  head_sha?: string | null;
+  gate_tripped?: boolean;
+  gate_reasons?: string[];
+  budget_limited?: boolean;
+  revision_count?: number;
+  decision?: "approved" | "rejected" | null;
+  decision_note?: string | null;
+  decided_at?: string | null;
+  github_review_url?: string | null;
+  error?: string | null;
 }
 
 export interface ReviewJob {
@@ -97,7 +120,9 @@ export type StageName =
   | "style"
   | "reflection"
   | "judge"
-  | "human_gate";
+  | "revise"
+  | "human_gate"
+  | "publish";
 
 export interface ReviewStartedEvent {
   type: "review.started";
@@ -106,6 +131,7 @@ export interface ReviewStartedEvent {
   pr_number: number | null;
   model: string;
   stages: StageName[];
+  pr_mode?: boolean;
 }
 
 export interface StageCompletedEvent {
@@ -119,6 +145,8 @@ export interface StageCompletedEvent {
   judge_dimensions?: Record<string, number>;
   judge_rationale?: string;
   requires_human_approval?: boolean;
+  gate_reasons?: string[];
+  github_review_url?: string | null;
 }
 
 export interface TelemetryUpdateEvent {
@@ -133,6 +161,14 @@ export interface ReviewCompletedEvent {
   review: Review;
 }
 
+export interface ReviewAwaitingApprovalEvent {
+  type: "review.awaiting_approval";
+  review_id: string;
+  gate_reasons: string[];
+  judge_score: number | null;
+  review: Review;
+}
+
 export interface ReviewFailedEvent {
   type: "review.failed";
   review_id: string;
@@ -144,4 +180,5 @@ export type ReviewEvent =
   | StageCompletedEvent
   | TelemetryUpdateEvent
   | ReviewCompletedEvent
+  | ReviewAwaitingApprovalEvent
   | ReviewFailedEvent;

@@ -20,6 +20,30 @@ _SKIP_DIRS = {
 _MAX_BYTES = 512_000  # skip very large/generated files
 
 
+class IngestPathError(ValueError):
+    """Raised when a requested ingest path is outside the allowed roots."""
+
+
+def resolve_ingest_root(path: str, allowed_roots: list[str]) -> Path:
+    """Resolve `path` and require it to sit inside one of `allowed_roots`.
+
+    Symlinks and `..` are resolved before the check, so neither can be used to
+    escape an allowed root.
+    """
+    if not allowed_roots:
+        raise IngestPathError(
+            "Ingestion over the API is disabled: set CODESAGE_INGEST_ROOTS to the "
+            "directories it may read."
+        )
+    target = Path(path).resolve()
+    for root in allowed_roots:
+        if target.is_relative_to(Path(root).resolve()):
+            if not target.is_dir():
+                raise IngestPathError(f"Not a directory: {path}")
+            return target
+    raise IngestPathError(f"Path is outside the allowed ingest roots: {path}")
+
+
 async def ingest_path(
     session: AsyncSession,
     *,
@@ -32,7 +56,7 @@ async def ingest_path(
     if replace:
         await store.clear_repo(repo)
 
-    root_path = Path(root)
+    root_path = Path(root).resolve()
     pending: list[dict] = []
     files = 0
     chunks_total = 0
@@ -43,6 +67,9 @@ async def ingest_path(
             fpath = Path(dirpath) / name
             rel = str(fpath.relative_to(root_path))
             if language_for(rel) is None:
+                continue
+            # Skip symlinks that point outside the tree being ingested.
+            if fpath.is_symlink() and not fpath.resolve().is_relative_to(root_path):
                 continue
             try:
                 if fpath.stat().st_size > _MAX_BYTES:

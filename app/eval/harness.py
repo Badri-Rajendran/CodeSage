@@ -18,12 +18,13 @@ import hashlib
 import json
 from pathlib import Path
 
-from app.agents.graph import build_review_graph, make_deps
-from app.agents.tools import ReviewTools
+from app.agents.graph import build_review_graph, make_deps, prepare_diff
 from app.config import get_settings
 from app.eval.regression import detect_regressions
 from app.llm.client import LLMClient
 from app.logging_config import configure_logging, get_logger
+from app.review_config import default_review_config
+from app.workspace import Workspace
 
 logger = get_logger(__name__)
 
@@ -45,13 +46,14 @@ def load_dataset(path: str) -> list[dict]:
 async def _score_case(case: dict, model: str) -> float:
     settings = get_settings().model_copy(update={"model": model, "judge_model": model})
     client = LLMClient(settings)
-    # No session factory in the eval harness → RAG retrieval is skipped gracefully.
-    tools = ReviewTools(case["repo"], case["diff"], settings=settings)
-    graph = build_review_graph(make_deps(client, tools, settings))
+    cfg = default_review_config(settings)
+    # Diff-only workspace, no semantic search: eval cases carry no repository.
+    workspace = Workspace.diff_only(prepare_diff(case["diff"], cfg))
+    graph = build_review_graph(make_deps(client, workspace, settings, cfg=cfg))
     state = await graph.ainvoke(
         {"repo": case["repo"], "pr_number": case.get("pr_number"), "diff": case["diff"]}
     )
-    return float(state.get("judge_score", 0.0))
+    return float(state.get("judge_score") or 0.0)
 
 
 async def run_dataset(dataset: str, model: str) -> dict:
